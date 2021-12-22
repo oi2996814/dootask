@@ -14,18 +14,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v2
 
-      - name: Build Changelog
-        id: github_release
-        uses: mikepenz/release-changelog-builder-action@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+      - name: Get Changelog
+        id: git_log
+        uses: kuaifan/get-git-log-action@master
+        with:
+          tag: ${{ github.ref }}
 
       - name: Create Release
         uses: actions/create-release@v1
         with:
           tag_name: ${{ github.ref }}
           release_name: Release ${{ github.ref }}
-          body: ${{steps.github_release.outputs.changelog}}
+          body: ${{steps.git_log.outputs.log}}
         env:
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
 

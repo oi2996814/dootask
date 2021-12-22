@@ -112,7 +112,7 @@ function step1() {
     fs.mkdirSync(electronDir);
     copyFile(path.resolve(__dirname, "index.html"), electronDir + "/index.html")
     //
-    child_process.spawnSync("mix", ["--production", "--", "--env", "--electron"], {stdio: "inherit"});
+    child_process.spawnSync("npx", ["mix", "--production", "--", "--env", "--electron"], {stdio: "inherit"});
 }
 
 // 生成配置、编译应用
@@ -215,7 +215,7 @@ if (["build", "prod"].includes(argv[2])) {
 } else {
     // 开发模式
     fs.writeFileSync(devloadCachePath, formatUrl("127.0.0.1:" + env.parsed.APP_PORT), 'utf8');
-    child_process.spawn("mix", ["watch", "--hot", "--", "--env", "--electron"], {stdio: "inherit"});
+    child_process.spawn("npx", ["mix", "watch", "--hot", "--", "--env", "--electron"], {stdio: "inherit"});
     child_process.spawn("npm", ["run", "start-quiet"], {stdio: "inherit", cwd: "electron"});
 }
 
