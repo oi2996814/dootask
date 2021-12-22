@@ -84,6 +84,9 @@ run_compile() {
 run_electron() {
     local argv=$@
     check_node
+    if [ ! -d "./node_modules" ]; then
+        npm install
+    fi
     if [ ! -d "./electron/node_modules" ]; then
         pushd electron
         npm install
