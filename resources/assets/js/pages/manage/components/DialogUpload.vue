@@ -28,14 +28,37 @@ export default {
         },
         maxSize: {
             type: Number,
-            default: 204800
+            default: 1024000
         }
     },
 
     data() {
         return {
-            uploadFormat: ['jpg', 'jpeg', 'png', 'gif', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'esp', 'pdf', 'rar', 'zip', 'gz', 'ai', 'avi', 'bmp', 'cdr', 'eps', 'mov', 'mp3', 'mp4', 'pr', 'psd', 'svg', 'tif'],
-            actionUrl: this.$store.state.method.apiUrl('dialog/msg/sendfile'),
+            uploadFormat: [
+                'text', 'md', 'markdown',
+                'drawio',
+                'mind',
+                'docx', 'wps', 'doc', 'xls', 'xlsx', 'ppt', 'pptx',
+                'jpg', 'jpeg', 'png', 'gif', 'bmp', 'ico', 'raw', 'svg',
+                'rar', 'zip', 'jar', '7-zip', 'tar', 'gzip', '7z', 'gz', 'apk', 'dmg',
+                'tif', 'tiff',
+                'dwg', 'dxf',
+                'ofd',
+                'pdf',
+                'txt',
+                'htaccess', 'htgroups', 'htpasswd', 'conf', 'bat', 'cmd', 'cpp', 'c', 'cc', 'cxx', 'h', 'hh', 'hpp', 'ino', 'cs', 'css',
+                'dockerfile', 'go', 'golang', 'html', 'htm', 'xhtml', 'vue', 'we', 'wpy', 'java', 'js', 'jsm', 'jsx', 'json', 'jsp', 'less', 'lua', 'makefile', 'gnumakefile',
+                'ocamlmakefile', 'make', 'mysql', 'nginx', 'ini', 'cfg', 'prefs', 'm', 'mm', 'pl', 'pm', 'p6', 'pl6', 'pm6', 'pgsql', 'php',
+                'inc', 'phtml', 'shtml', 'php3', 'php4', 'php5', 'phps', 'phpt', 'aw', 'ctp', 'module', 'ps1', 'py', 'r', 'rb', 'ru', 'gemspec', 'rake', 'guardfile', 'rakefile',
+                'gemfile', 'rs', 'sass', 'scss', 'sh', 'bash', 'bashrc', 'sql', 'sqlserver', 'swift', 'ts', 'typescript', 'str', 'vbs', 'vb', 'v', 'vh', 'sv', 'svh', 'xml',
+                'rdf', 'rss', 'wsdl', 'xslt', 'atom', 'mathml', 'mml', 'xul', 'xbl', 'xaml', 'yaml', 'yml',
+                'asp', 'properties', 'gitignore', 'log', 'bas', 'prg', 'python', 'ftl', 'aspx',
+                'mp3', 'wav', 'mp4', 'flv',
+                'avi', 'mov', 'wmv', 'mkv', '3gp', 'rm',
+                'xmind',
+                'rp',
+            ],
+            actionUrl: $A.apiUrl('dialog/msg/sendfile'),
         }
     },
 
@@ -44,7 +67,7 @@ export default {
 
         headers() {
             return {
-                fd: this.$store.state.method.getStorageString("userWsFd"),
+                fd: $A.getStorageString("userWsFd"),
                 token: this.userToken,
             }
         },
@@ -59,7 +82,7 @@ export default {
     methods: {
         handleProgress(event, file) {
             //上传时
-            if (typeof file.tempId === "undefined") {
+            if (file.tempId === undefined) {
                 file.tempId = $A.randomString(8);
                 this.$emit('on-progress', file);
             }

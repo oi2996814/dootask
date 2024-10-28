@@ -8,9 +8,8 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use Response;
 
 /**
- * Class FileContent
+ * App\Models\FileContent
  *
- * @package App\Models
  * @property int $id
  * @property int|null $fid 文件ID
  * @property string|null $content 内容
@@ -42,43 +41,53 @@ class FileContent extends AbstractModel
     use SoftDeletes;
 
     /**
-     * 获取格式内容
-     * @param $type
+     * 获取格式内容（或下载）
+     * @param File $file
      * @param $content
+     * @param $download
      * @return array|\Symfony\Component\HttpFoundation\BinaryFileResponse
      */
-    public static function formatContent($type, $content)
+    public static function formatContent($file, $content, $download = false)
     {
-        $content = Base::json2array($content);
-        if (in_array($type, ['word', 'excel', 'ppt'])) {
+        $name = $file->ext ? "{$file->name}.{$file->ext}" : null;
+        $content = Base::json2array($content ?: []);
+        if (in_array($file->type, ['word', 'excel', 'ppt'])) {
             if (empty($content)) {
-                return Response::download(resource_path('assets/statics/office/empty.' . str_replace(['word', 'excel', 'ppt'], ['docx', 'xlsx', 'pptx'], $type)));
+                return Response::download(resource_path('assets/statics/office/empty.' . str_replace(['word', 'excel', 'ppt'], ['docx', 'xlsx', 'pptx'], $file->type)), $name);
             }
-            return Response::download(public_path($content['url']));
+            return Response::download(public_path($content['url']), $name);
         }
         if (empty($content)) {
-            $content = match ($type) {
+            $content = match ($file->type) {
                 'document' => [
-                    "type" => "md",
+                    "type" => $file->ext,
                     "content" => "",
-                ],
-                'sheet' => [
-                    [
-                        "name" => "Sheet1",
-                        "config" => json_decode('{}'),
-                    ]
                 ],
                 default => json_decode('{}'),
             };
+            if ($download) {
+                abort(403, "This file is empty.");
+            }
         } else {
-            $content['preview'] = false;
-            if ($content['ext'] && !in_array($content['ext'], ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'])) {
-                $url = 'http://' . env('APP_IPPR') . '.3/' . $content['url'];
-                if ($type == 'image') {
-                    $url = Base::fillUrl($content['url']);
+            $path = $content['url'];
+            if ($file->ext) {
+                $res = File::formatFileData([
+                    'path' => $path,
+                    'ext' => $file->ext,
+                    'size' => $file->size,
+                    'name' => $file->name,
+                ]);
+                $content = $res['content'];
+            } else {
+                $content['preview'] = false;
+            }
+            if ($download) {
+                $filePath = public_path($path);
+                if (isset($filePath)) {
+                    return Response::download($filePath, $name);
+                } else {
+                    abort(403, "This file not support download.");
                 }
-                $content['url'] = base64_encode($url);
-                $content['preview'] = true;
             }
         }
         return Base::retSuccess('success', [ 'content' => $content ]);

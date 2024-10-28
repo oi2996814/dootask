@@ -4,8 +4,8 @@ services:
   php:
     container_name: "dootask-php-${APP_ID}"
     image: "kuaifan/php:swoole-8.0"
+    shm_size: "1024m"
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
       - ./docker/crontab/crontab.conf:/etc/supervisor/conf.d/crontab.conf
       - ./docker/php/php.conf:/etc/supervisor/conf.d/php.conf
       - ./docker/php/php.ini:/usr/local/etc/php/php.ini
@@ -45,6 +45,8 @@ services:
       - php
       - office
       - fileview
+      - drawio-webapp
+      - drawio-export
     restart: unless-stopped
 
   redis:
@@ -59,7 +61,7 @@ services:
 
   mariadb:
     container_name: "dootask-mariadb-${APP_ID}"
-    image: "mariadb"
+    image: "mariadb:10.7.3"
     ports: # mysql ports item
       - "33062:3306" # mysql ports value
     volumes:
@@ -80,13 +82,16 @@ services:
 
   office:
     container_name: "dootask-office-${APP_ID}"
-    image: "onlyoffice/documentserver:6.4.2.6"
+    image: "onlyoffice/documentserver:7.0.0.132"
     volumes:
       - ./docker/office/data:/var/www/onlyoffice/Data
       - ./docker/office/logs:/var/log/onlyoffice
       - ./docker/office/resources/documenteditor/css/app.css:/var/www/onlyoffice/documentserver/web-apps/apps/documenteditor/main/resources/css/app.css
       - ./docker/office/resources/presentationeditor/css/app.css:/var/www/onlyoffice/documentserver/web-apps/apps/presentationeditor/main/resources/css/app.css
       - ./docker/office/resources/spreadsheeteditor/css/app.css:/var/www/onlyoffice/documentserver/web-apps/apps/spreadsheeteditor/main/resources/css/app.css
+      - ./docker/office/resources/documenteditor/mobile/css/app.css:/var/www/onlyoffice/documentserver/web-apps/apps/documenteditor/mobile/css/app.css
+      - ./docker/office/resources/presentationeditor/mobile/css/app.css:/var/www/onlyoffice/documentserver/web-apps/apps/presentationeditor/mobile/css/app.css
+      - ./docker/office/resources/spreadsheeteditor/mobile/css/app.css:/var/www/onlyoffice/documentserver/web-apps/apps/spreadsheeteditor/mobile/css/app.css
     environment:
       TZ: "Asia/Shanghai"
     networks:
@@ -96,13 +101,43 @@ services:
 
   fileview:
     container_name: "dootask-fileview-${APP_ID}"
-    image: "kuaifan/fileview:4.1.0-SNAPSHOT"
+    image: "kuaifan/fileview:4.1.0-SNAPSHOT-RC4"
     environment:
       TZ: "Asia/Shanghai"
       KK_CONTEXT_PATH: "/fileview"
     networks:
       extnetwork:
         ipv4_address: "${APP_IPPR}.7"
+    restart: unless-stopped
+
+  drawio-webapp:
+    container_name: "dootask-drawio-webapp-${APP_ID}"
+    image: "jgraph/drawio:16.6.1"
+    volumes:
+      - ./docker/drawio/webapp/index.html:/usr/local/tomcat/webapps/draw/index.html
+      - ./docker/drawio/webapp/stencils:/usr/local/tomcat/webapps/draw/stencils
+      - ./docker/drawio/webapp/js/app.min.js:/usr/local/tomcat/webapps/draw/js/app.min.js
+      - ./docker/drawio/webapp/js/croppie/croppie.min.css:/usr/local/tomcat/webapps/draw/js/croppie/croppie.min.css
+      - ./docker/drawio/webapp/js/diagramly/ElectronApp.js:/usr/local/tomcat/webapps/draw/js/diagramly/ElectronApp.js
+    networks:
+      extnetwork:
+        ipv4_address: "${APP_IPPR}.8"
+    environment:
+      TZ: "Asia/Shanghai"
+    depends_on:
+      - drawio-export
+    restart: unless-stopped
+
+  drawio-export:
+    container_name: "dootask-drawio-export-${APP_ID}"
+    image: "jgraph/export-server"
+    networks:
+      extnetwork:
+        ipv4_address: "${APP_IPPR}.9"
+    environment:
+      TZ: "Asia/Shanghai"
+    volumes:
+      - ./docker/drawio/export/fonts:/usr/share/fonts/drawio
     restart: unless-stopped
 
 networks:

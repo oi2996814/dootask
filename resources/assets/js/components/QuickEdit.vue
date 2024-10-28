@@ -1,8 +1,20 @@
 <template>
     <div class="quick-edit" :class="[alwaysIcon ? 'quick-always' : '']">
-        <div v-if="isEdit" v-clickoutside="onEnter" class="quick-input">
-            <TagInput v-if="isTag" ref="input" v-model="content" :disabled="isLoad" @on-enter="onEnter"/>
-            <Input v-else ref="input" v-model="content" :disabled="isLoad" @on-enter="onEnter"/>
+        <div v-if="isEdit" v-clickoutside="onClickOut" class="quick-input">
+            <TagInput
+                v-if="isTag"
+                ref="input"
+                v-model="content"
+                :disabled="isLoad"
+                @on-keydown="onKeydown"
+                @on-blur="onBlur"/>
+            <Input
+                v-else
+                ref="input"
+                v-model="content"
+                :disabled="isLoad"
+                @on-keydown="onKeydown"
+                @on-blur="onBlur"/>
             <div v-if="isLoad" class="quick-loading"><Loading/></div>
         </div>
         <template v-else>
@@ -33,6 +45,10 @@ export default {
             type: Boolean,
             default: false
         },
+        clickOutSide: {
+            type: Boolean,
+            default: true
+        },
     },
 
     data() {
@@ -50,20 +66,22 @@ export default {
     },
 
     watch: {
-        isEdit(val) {
-            this.$emit("on-edit-change", val);
-        },
         autoEdit(val) {
             if (val === true) {
-                this.onEdit();
+                setTimeout(this.onEdit, 0)
             }
         }
     },
 
     methods: {
+        onEditChange(val) {
+            this.isEdit = val;
+            this.$emit("on-edit-change", val);
+        },
+
         onEdit() {
             this.content = this.value;
-            this.isEdit = true;
+            this.onEditChange(true);
             this.$nextTick(() => {
                 this.$refs.input.focus({
                     cursor: 'all'
@@ -71,9 +89,20 @@ export default {
             })
         },
 
+        onKeydown(e) {
+            if (e.keyCode === 13) {
+                this.onEnter();
+            } else if (e.keyCode === 27) {
+                e.preventDefault()
+                e.stopPropagation()
+                this.isEdit = false;
+                this.isLoad = false;
+            }
+        },
+
         onEnter() {
             if (this.content == this.value) {
-                this.isEdit = false;
+                this.onEditChange(false);
                 return;
             }
             if (this.isLoad) {
@@ -82,9 +111,23 @@ export default {
             this.isLoad = true;
             this.$emit("input", this.content);
             this.$emit("on-update", this.content, () => {
-                this.isEdit = false;
+                this.onEditChange(false);
                 this.isLoad = false;
             })
+        },
+
+        onClickOut() {
+            if (!this.clickOutSide) {
+                return;
+            }
+            this.onEnter();
+        },
+
+        onBlur() {
+            if (this.clickOutSide || !this.isEdit) {
+                return;
+            }
+            this.onEnter();
         },
     }
 }

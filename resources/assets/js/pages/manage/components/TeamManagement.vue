@@ -1,30 +1,19 @@
 <template>
     <div class="team-management">
-        <div class="management-title">{{$L('团队管理')}}</div>
-        <div class="search-container">
+        <div class="management-title">
+            {{$L('团队管理')}}
+            <div class="title-icon">
+                <Loading v-if="loadIng > 0"/>
+            </div>
+        </div>
+        <div class="search-container lr">
             <ul>
                 <li>
                     <div class="search-label">
-                        {{$L("邮箱")}}
+                        {{$L("关键词")}}
                     </div>
                     <div class="search-content">
-                        <Input v-model="keys.email" clearable/>
-                    </div>
-                </li>
-                <li>
-                    <div class="search-label">
-                        {{$L("昵称")}}
-                    </div>
-                    <div class="search-content">
-                        <Input v-model="keys.nickname" clearable/>
-                    </div>
-                </li>
-                <li>
-                    <div class="search-label">
-                        {{$L("职位/职称")}}
-                    </div>
-                    <div class="search-content">
-                        <Input v-model="keys.position" clearable/>
+                        <Input v-model="keys.key" :placeholder="$L('邮箱、昵称、职位')" clearable/>
                     </div>
                 </li>
                 <li>
@@ -32,38 +21,78 @@
                         {{$L("身份")}}
                     </div>
                     <div class="search-content">
-                        <Select v-model="keys.identity">
+                        <Select v-model="keys.identity" :placeholder="$L('请选择')">
                             <Option value="">{{$L('全部')}}</Option>
                             <Option value="admin">{{$L('管理员')}}</Option>
+                            <Option value="noadmin">{{$L('非管理员')}}</Option>
                             <Option value="disable">{{$L('禁用')}}</Option>
+                            <Option value="nodisable">{{$L('非禁用')}}</Option>
+                        </Select>
+                    </div>
+                </li>
+                <li>
+                    <div class="search-label">
+                        {{$L("邮箱认证")}}
+                    </div>
+                    <div class="search-content">
+                        <Select v-model="keys.email_verity" :placeholder="$L('请选择')">
+                            <Option value="">{{$L('全部')}}</Option>
+                            <Option value="yes">{{$L('已邮箱认证')}}</Option>
+                            <Option value="no">{{$L('未邮箱认证')}}</Option>
                         </Select>
                     </div>
                 </li>
                 <li class="search-button">
-                    <Button :loading="loadIng > 0" type="primary" icon="ios-search" @click="getLists">{{$L('搜索')}}</Button>
+                    <Tooltip
+                        theme="light"
+                        placement="bottom"
+                        transfer-class-name="search-button-clear"
+                        transfer>
+                        <Button :loading="loadIng > 0" type="primary" icon="ios-search" @click="onSearch">{{$L('搜索')}}</Button>
+                        <div slot="content">
+                            <Button v-if="keyIs" type="text" @click="keyIs=false">{{$L('取消筛选')}}</Button>
+                            <Button v-else :loading="loadIng > 0" type="text" @click="getLists">{{$L('刷新')}}</Button>
+                        </div>
+                    </Tooltip>
                 </li>
             </ul>
         </div>
-        <Table :columns="columns" :data="list" :no-data-text="$L(noText)"></Table>
-        <Page
-            class="page-container"
-            :total="total"
-            :current="page"
-            :disabled="loadIng > 0"
-            simple
-            @on-change="setPage"
-            @on-page-size-change="setPageSize"/>
+        <div class="table-page-box">
+            <Table
+                :columns="columns"
+                :data="list"
+                :loading="loadIng > 0"
+                :no-data-text="$L(noText)"
+                stripe/>
+            <Page
+                :total="total"
+                :current="page"
+                :page-size="pageSize"
+                :disabled="loadIng > 0"
+                :simple="windowMax768"
+                :page-size-opts="[10,20,30,50,100]"
+                show-elevator
+                show-sizer
+                show-total
+                @on-change="setPage"
+                @on-page-size-change="setPageSize"/>
+        </div>
     </div>
 </template>
 
 <script>
+import {mapState} from "vuex";
+
 export default {
     name: "TeamManagement",
     data() {
         return {
             loadIng: 0,
 
-            keys: {},
+            keys: {
+                identity: 'nodisable'
+            },
+            keyIs: false,
 
             columns: [],
             list: [],
@@ -77,14 +106,34 @@ export default {
     mounted() {
         this.getLists();
     },
+    computed: {
+        ...mapState(['windowMax768'])
+    },
+    watch: {
+        keyIs(v) {
+            if (!v) {
+                this.keys = {}
+                this.setPage(1)
+            }
+        }
+    },
     methods: {
         initLanguage() {
             this.columns = [
                 {
-                    title: this.$L('ID'),
-                    minWidth: 50,
-                    maxWidth: 70,
+                    title: 'ID',
                     key: 'userid',
+                    width: 80,
+                    render: (h, {row, column}) => {
+                        return h('TableAction', {
+                            props: {
+                                column: column,
+                                align: 'left'
+                            }
+                        }, [
+                            h("div", row.userid),
+                        ]);
+                    }
                 },
                 {
                     title: this.$L('邮箱'),
@@ -92,7 +141,14 @@ export default {
                     minWidth: 100,
                     render: (h, {row}) => {
                         const arr = [h('AutoTip', row.email)];
-                        const identity = row.identity;
+                        const {email_verity, identity} = row;
+                        if (email_verity) {
+                            arr.push(h('Icon', {
+                                props: {
+                                    type: 'md-mail'
+                                }
+                            }))
+                        }
                         if (identity.includes("admin")) {
                             arr.push(h('Tag', {
                                 props: {
@@ -204,6 +260,9 @@ export default {
                                 props: {
                                     command: 'delete',
                                 },
+                                style: {
+                                    color: 'red'
+                                }
                             }, [h('div', this.$L('删除'))]),
                         ])
                         const dropdownMenu = h('EDropdown', {
@@ -239,14 +298,21 @@ export default {
                 }
             ]
         },
+
+        onSearch() {
+            this.page = 1;
+            this.getLists();
+        },
+
         getLists() {
             this.loadIng++;
+            this.keyIs = $A.objImplode(this.keys) != "";
             this.$store.dispatch("call", {
                 url: 'users/lists',
                 data: {
                     keys: this.keys,
                     page: Math.max(this.page, 1),
-                    pagesize: Math.max($A.runNum(this.pageSize), 20),
+                    pagesize: Math.max($A.runNum(this.pageSize), 10),
                 },
             }).then(({data}) => {
                 this.loadIng--;
@@ -311,21 +377,20 @@ export default {
         },
 
         operationUser(data) {
-            let that = this;
-            return new Promise(function (resolve) {
-                that.loadIng++;
-                that.$store.dispatch("call", {
+            return new Promise((resolve) => {
+                this.loadIng++;
+                this.$store.dispatch("call", {
                     url: 'users/operation',
                     data,
                 }).then(({msg}) => {
                     $A.messageSuccess(msg);
-                    that.loadIng--;
-                    that.getLists();
+                    this.loadIng--;
+                    this.getLists();
                     resolve()
                 }).catch(({msg}) => {
                     $A.modalError(msg, 301);
-                    that.loadIng--;
-                    that.getLists();
+                    this.loadIng--;
+                    this.getLists();
                     resolve()
                 })
             })

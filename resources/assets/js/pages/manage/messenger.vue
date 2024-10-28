@@ -14,22 +14,33 @@
                         v-for="(item, key) in dialogType"
                         :key="key"
                         :class="{active:dialogActive==item.type}"
-                        @click="dialogActive=item.type">
+                        @click="onActive(item.type)">
                         <Badge class="nav-num" :count="msgUnread(item.type)"/>
                         {{$L(item.name)}}
                     </p>
                 </div>
                 <ScrollerY
                     ref="list"
-                    class="messenger-list overlay-y"
+                    class="messenger-list"
+                    :class="overlayClass"
                     @on-scroll="listScroll"
                     static>
-                    <ul v-if="tabActive==='dialog'" class="dialog">
+                    <ul
+                        v-if="tabActive==='dialog'"
+                        ref="dialogWrapper"
+                        class="dialog" >
                         <li
                             v-for="(dialog, key) in dialogList"
+                            :ref="`dialog_${dialog.id}`"
                             :key="key"
-                            :class="{active: dialog.id == dialogId}"
-                            @click="openDialog(dialog, true)">
+                            :class="{
+                                top: dialog.top_at,
+                                active: dialog.id == dialogId,
+                                operate: dialog.id == topOperateItem.id && topOperateVisible,
+                                completed: $A.dialogCompleted(dialog)
+                            }"
+                            @click="openDialog(dialog, true)"
+                            @contextmenu.prevent.stop="handleRightClick($event, dialog)">
                             <template v-if="dialog.type=='group'">
                                 <i v-if="dialog.group_type=='project'" class="taskfont icon-avatar project">&#xe6f9;</i>
                                 <i v-else-if="dialog.group_type=='task'" class="taskfont icon-avatar task">&#xe6f4;</i>
@@ -39,13 +50,16 @@
                             <Icon v-else class="icon-avatar" type="md-person" />
                             <div class="dialog-box">
                                 <div class="dialog-title">
+                                    <template v-for="tag in $A.dialogTags(dialog)" v-if="tag.color != 'success'">
+                                        <Tag :color="tag.color" :fade="false">{{$L(tag.text)}}</Tag>
+                                    </template>
                                     <span>{{dialog.name}}</span>
                                     <Icon v-if="dialog.type == 'user' && lastMsgReadDone(dialog.last_msg)" :type="lastMsgReadDone(dialog.last_msg)"/>
-                                    <em v-if="dialog.last_at">{{formatTime(dialog.last_at)}}</em>
+                                    <em v-if="dialog.last_at">{{$A.formatTime(dialog.last_at)}}</em>
                                 </div>
-                                <div class="dialog-text">{{formatLastMsg(dialog.last_msg)}}</div>
+                                <div class="dialog-text no-dark-mode">{{formatLastMsg(dialog.last_msg)}}</div>
                             </div>
-                            <Badge class="dialog-num" :count="dialog.unread"/>
+                            <Badge class="dialog-num" :count="$A.getDialogUnread(dialog)"/>
                         </li>
                     </ul>
                     <ul v-else class="contacts">
@@ -61,10 +75,35 @@
                         <li v-if="contactsLoad > 0" class="loading"><Loading/></li>
                         <li v-else-if="!contactsHasMorePages" class="loaded">{{$L('共' + contactsList.length + '位联系人')}}</li>
                     </ul>
+                    <div class="top-operate" :style="topOperateStyles">
+                        <Dropdown
+                            trigger="custom"
+                            :visible="topOperateVisible"
+                            transfer-class-name="page-file-dropdown-menu"
+                            @on-clickoutside="handleClickTopOperateOutside"
+                            transfer>
+                            <DropdownMenu slot="list">
+                                <DropdownItem @click.native="handleTopClick">
+                                    {{ $L(topOperateItem.top_at ? '取消置顶' : '置顶该聊天') }}
+                                </DropdownItem>
+                                <DropdownItem @click.native="updateRead('read')" v-if="$A.getDialogUnread(topOperateItem) > 0">
+                                    {{ $L('标记已读') }}
+                                </DropdownItem>
+                                <DropdownItem @click.native="updateRead('unread')" v-else>
+                                    {{ $L('标记未读') }}
+                                </DropdownItem>
+                            </DropdownMenu>
+                        </Dropdown>
+                    </div>
                 </ScrollerY>
                 <div class="messenger-menu">
-                    <Icon @click="tabActive='dialog'" :class="{active:tabActive==='dialog'}" type="ios-chatbubbles" />
-                    <Icon @click="tabActive='contacts'" :class="{active:tabActive==='contacts'}" type="md-person" />
+                    <div class="menu-icon">
+                        <Icon @click="tabActive='dialog'" :class="{active:tabActive==='dialog'}" type="ios-chatbubbles" />
+                        <Badge class="menu-num" :count="msgUnread('all')"/>
+                    </div>
+                    <div class="menu-icon">
+                        <Icon @click="tabActive='contacts'" :class="{active:tabActive==='contacts'}" type="md-person" />
+                    </div>
                 </div>
             </div>
 
@@ -110,6 +149,10 @@ export default {
             contactsData: null,
             contactsCurrentPage: 1,
             contactsHasMorePages: false,
+
+            topOperateStyles: {},
+            topOperateVisible: false,
+            topOperateItem: {},
         }
     },
 
@@ -118,27 +161,32 @@ export default {
     },
 
     computed: {
-        ...mapState(['userId', 'dialogs', 'dialogOpenId']),
+        ...mapState(['userId', 'cacheDialogs', 'dialogOpenId']),
 
         dialogList() {
             const {dialogActive, dialogKey} = this;
             if (dialogActive == '' && dialogKey == '') {
-                return this.dialogs.filter(({name}) => name !== undefined);
+                return this.cacheDialogs.filter(dialog => this.filterDialog(dialog)).sort((a, b) => {
+                    if (a.top_at || b.top_at) {
+                        return $A.Date(b.top_at) - $A.Date(a.top_at);
+                    }
+                    return $A.Date(b.last_at) - $A.Date(a.last_at);
+                });
             }
-            return this.dialogs.filter(({name, type, group_type, last_msg}) => {
-                if (name === undefined) {
+            return this.cacheDialogs.filter(dialog => {
+                if (!this.filterDialog(dialog)) {
                     return false;
                 }
                 if (dialogActive) {
                     switch (dialogActive) {
                         case 'project':
                         case 'task':
-                            if (group_type != dialogActive) {
+                            if (dialog.group_type != dialogActive) {
                                 return false;
                             }
                             break;
                         case 'user':
-                            if (type != 'user') {
+                            if (dialog.type != 'user') {
                                 return false;
                             }
                             break;
@@ -147,35 +195,41 @@ export default {
                     }
                 }
                 if (dialogKey) {
-                    let existName = $A.strExists(name, dialogKey);
-                    let existMsg = last_msg && last_msg.type === 'text' && $A.strExists(last_msg.msg.text, dialogKey);
+                    let existName = $A.strExists(dialog.name, dialogKey);
+                    let existMsg = dialog.last_msg && dialog.last_msg.type === 'text' && $A.strExists(dialog.last_msg.msg.text, dialogKey);
                     if (!existName && !existMsg) {
                         return false;
                     }
                 }
                 return true;
+            }).sort((a, b) => {
+                if (a.top_at || b.top_at) {
+                    return $A.Date(b.top_at) - $A.Date(a.top_at);
+                }
+                return $A.Date(b.last_at) - $A.Date(a.last_at);
             })
         },
 
         msgUnread() {
             return function (type) {
                 let num = 0;
-                this.dialogs.map((dialog) => {
-                    if (dialog.unread) {
+                this.cacheDialogs.some((dialog) => {
+                    let unread = $A.getDialogUnread(dialog);
+                    if (unread) {
                         switch (type) {
                             case 'project':
                             case 'task':
                                 if (type == dialog.group_type) {
-                                    num += dialog.unread;
+                                    num += unread;
                                 }
                                 break;
                             case 'user':
                                 if (type == dialog.type) {
-                                    num += dialog.unread;
+                                    num += unread;
                                 }
                                 break;
                             default:
-                                num += dialog.unread;
+                                num += unread;
                                 break;
                         }
                     }
@@ -183,6 +237,13 @@ export default {
                 return num;
             }
         },
+
+        overlayClass() {
+            return {
+                'overlay-y': true,
+                'overlay-none': this.topOperateVisible === true,
+            }
+        }
     },
 
     watch: {
@@ -191,8 +252,12 @@ export default {
                 this.getContactsList(1);
             }
         },
+        dialogId(id) {
+            $A.setStorage("messenger::dialogId", id);
+            this.$store.state.dialogOpenId = id;
+        },
         dialogOpenId(id) {
-            this.dialogId = id;
+            if (id > 0) this.dialogId = id;
         },
         contactsKey(val) {
             setTimeout(() => {
@@ -217,23 +282,36 @@ export default {
                     }
                     break;
             }
+            this.topOperateVisible = false;
+        },
+
+        onActive(type) {
+            if (this.dialogActive == type) {
+                // 再次点击滚动到未读条目
+                const dialog = this.dialogList.find(dialog => $A.getDialogUnread(dialog) > 0)
+                if (dialog) {
+                    $A.scrollToView(this.$refs[`dialog_${dialog.id}`][0], {
+                        behavior: 'smooth',
+                        scrollMode: 'if-needed',
+                    })
+                }
+            }
+            this.dialogActive = type
         },
 
         closeDialog() {
             this.dialogId = 0;
-            this.$store.state.method.setStorage("messenger::dialogId", 0)
         },
 
         openDialog(dialog, smooth) {
-            this.$store.state.method.setStorage("messenger::dialogId", dialog.id)
             this.dialogId = dialog.id;
             this.scrollIntoActive(smooth);
         },
 
         openDialogStorage() {
-            this.dialogId = this.$store.state.method.getStorageInt("messenger::dialogId")
+            this.dialogId = $A.getStorageInt("messenger::dialogId")
             if (this.dialogId > 0) {
-                const dialog = this.dialogs.find(({id}) => id === this.dialogId);
+                const dialog = this.cacheDialogs.find(({id}) => id === this.dialogId);
                 dialog && this.openDialog(dialog, false);
             }
         },
@@ -243,6 +321,44 @@ export default {
             this.$store.dispatch("openDialogUserid", user.userid).then(() => {
                 this.scrollIntoActive()
             });
+        },
+
+        filterDialog(dialog) {
+            if ($A.getDialogUnread(dialog) > 0 || dialog.id == this.dialogId || dialog.top_at) {
+                return true
+            }
+            if (dialog.name === undefined) {
+                return false;
+            }
+            if (!dialog.last_at) {
+                return false;
+            }
+            if (dialog.type == 'group') {
+                if (['project', 'task'].includes(dialog.group_type) && $A.isJson(dialog.group_info)) {
+                    if (dialog.group_type == 'task' && dialog.group_info.complete_at) {
+                        // 已完成5天后隐藏对话
+                        let time = Math.max($A.Date(dialog.last_at, true), $A.Date(dialog.group_info.complete_at, true))
+                        if (5 * 86400 + time < $A.Time()) {
+                            return false
+                        }
+                    }
+                    if (dialog.group_info.deleted_at) {
+                        // 已删除2天后隐藏对话
+                        let time = Math.max($A.Date(dialog.last_at, true), $A.Date(dialog.group_info.deleted_at, true))
+                        if (2 * 86400 + time < $A.Time()) {
+                            return false
+                        }
+                    }
+                    if (dialog.group_info.archived_at) {
+                        // 已归档3天后隐藏对话
+                        let time = Math.max($A.Date(dialog.last_at, true), $A.Date(dialog.group_info.archived_at, true))
+                        if (3 * 86400 + time < $A.Time()) {
+                            return false
+                        }
+                    }
+                }
+            }
+            return true;
         },
 
         getContactsList(page) {
@@ -287,19 +403,6 @@ export default {
             });
         },
 
-        formatTime(date) {
-            let time = Math.round($A.Date(date).getTime() / 1000),
-                string = '';
-            if ($A.formatDate('Ymd') === $A.formatDate('Ymd', time)) {
-                string = $A.formatDate('H:i', time)
-            } else if ($A.formatDate('Y') === $A.formatDate('Y', time)) {
-                string = $A.formatDate('m-d', time)
-            } else {
-                string = $A.formatDate('Y-m-d', time)
-            }
-            return string || '';
-        },
-
         formatLastMsg(data) {
             if ($A.isJson(data)) {
                 switch (data.type) {
@@ -332,18 +435,18 @@ export default {
                 if (this.$refs.list) {
                     let active = this.$refs.list.querySelector(".active")
                     if (active) {
-                        scrollIntoView(active, {
+                        $A.scrollToView(active, {
                             behavior: smooth === true ? 'smooth' : 'instant',
                             scrollMode: 'if-needed',
                         });
                     } else {
-                        let dialog = this.dialogs.find(({id}) => id == this.dialogId)
+                        let dialog = this.cacheDialogs.find(({id}) => id == this.dialogId)
                         if (dialog && this.dialogActive) {
                             this.dialogActive = '';
                             this.$nextTick(() => {
                                 let active = this.$refs.list.querySelector(".active")
                                 if (active) {
-                                    scrollIntoView(active, {
+                                    $A.scrollToView(active, {
                                         behavior: smooth === true ? 'smooth' : 'instant',
                                         scrollMode: 'if-needed',
                                     });
@@ -353,6 +456,54 @@ export default {
                     }
                 }
             })
+        },
+
+        handleRightClick(event, item) {
+            this.handleClickTopOperateOutside();
+            this.topOperateItem = $A.isJson(item) ? item : {};
+            this.$nextTick(() => {
+                const dialogWrap = this.$refs.dialogWrapper;
+                const dialogBounding = dialogWrap.getBoundingClientRect();
+                this.topOperateStyles = {
+                    left: `${event.clientX - dialogBounding.left}px`,
+                    top: `${event.clientY - dialogBounding.top + 100 - this.$refs.list.scrollInfo().scrollY}px`
+                };
+                this.topOperateVisible = true;
+            })
+        },
+
+        handleClickTopOperateOutside() {
+            this.topOperateVisible = false;
+        },
+
+        handleTopClick() {
+            this.$store.dispatch("call", {
+                url: 'dialog/top',
+                data: {
+                    dialog_id: this.topOperateItem.id,
+                },
+            }).then(({data}) => {
+                this.$store.dispatch("saveDialog", data);
+                this.$nextTick(() => {
+                    this.scrollIntoActive(false)
+                });
+            }).catch(({msg}) => {
+                $A.modalError(msg);
+            });
+        },
+
+        updateRead(type) {
+            this.$store.dispatch("call", {
+                url: 'dialog/msg/mark',
+                data: {
+                    dialog_id: this.topOperateItem.id,
+                    type: type
+                },
+            }).then(({data}) => {
+                this.$store.dispatch("saveDialog", data);
+            }).catch(({msg}) => {
+                $A.modalError(msg);
+            });
         }
     }
 }

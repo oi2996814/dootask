@@ -2,6 +2,10 @@
 
 namespace Database\Seeders;
 
+use App\Models\File;
+use App\Models\FileContent;
+use App\Module\Base;
+use Carbon\Carbon;
 use Illuminate\Database\Seeder;
 
 class FilesTableSeeder extends Seeder
@@ -28,6 +32,7 @@ class FilesTableSeeder extends Seeder
                 'cid' => 0,
                 'name' => '设计知识',
                 'type' => 'folder',
+                'ext' => '',
                 'size' => 0,
                 'userid' => 1,
                 'share' => 1,
@@ -43,6 +48,7 @@ class FilesTableSeeder extends Seeder
                 'cid' => 0,
                 'name' => '如何搭建B端设计规范？',
                 'type' => 'document',
+                'ext' => '',
                 'size' => 16976,
                 'userid' => 1,
                 'share' => 0,
@@ -58,6 +64,7 @@ class FilesTableSeeder extends Seeder
                 'cid' => 0,
                 'name' => '页面设计中的信息组织策略探索-言之有序',
                 'type' => 'document',
+                'ext' => '',
                 'size' => 11971,
                 'userid' => 1,
                 'share' => 0,
@@ -73,6 +80,7 @@ class FilesTableSeeder extends Seeder
                 'cid' => 0,
                 'name' => '素材整理',
                 'type' => 'folder',
+                'ext' => '',
                 'size' => 0,
                 'userid' => 1,
                 'share' => 0,
@@ -88,6 +96,7 @@ class FilesTableSeeder extends Seeder
                 'cid' => 0,
                 'name' => '配置静态IP地址',
                 'type' => 'document',
+                'ext' => '',
                 'size' => 285,
                 'userid' => 1,
                 'share' => 0,
@@ -103,6 +112,7 @@ class FilesTableSeeder extends Seeder
                 'cid' => 0,
                 'name' => '脑图',
                 'type' => 'mind',
+                'ext' => '',
                 'size' => 1947,
                 'userid' => 1,
                 'share' => 0,
@@ -118,6 +128,7 @@ class FilesTableSeeder extends Seeder
                 'cid' => 0,
                 'name' => '数据统计',
                 'type' => 'excel',
+                'ext' => 'xlsx',
                 'size' => 8128,
                 'userid' => 1,
                 'share' => 0,
@@ -133,6 +144,7 @@ class FilesTableSeeder extends Seeder
                 'cid' => 0,
                 'name' => '会议纪要',
                 'type' => 'document',
+                'ext' => '',
                 'size' => 8088,
                 'userid' => 1,
                 'share' => 0,
@@ -148,6 +160,7 @@ class FilesTableSeeder extends Seeder
                 'cid' => 0,
                 'name' => '部门周报',
                 'type' => 'document',
+                'ext' => '',
                 'size' => 23266,
                 'userid' => 1,
                 'share' => 0,
@@ -163,6 +176,7 @@ class FilesTableSeeder extends Seeder
                 'cid' => 0,
                 'name' => '项目管理',
                 'type' => 'excel',
+                'ext' => 'xlsx',
                 'size' => 8128,
                 'userid' => 1,
                 'share' => 0,
@@ -178,6 +192,7 @@ class FilesTableSeeder extends Seeder
                 'cid' => 0,
                 'name' => '工作计划',
                 'type' => 'excel',
+                'ext' => 'xlsx',
                 'size' => 8128,
                 'userid' => 1,
                 'share' => 1,
@@ -192,7 +207,8 @@ class FilesTableSeeder extends Seeder
                 'pid' => 0,
                 'cid' => 0,
                 'name' => '流程图',
-                'type' => 'flow',
+                'type' => 'drawio',
+                'ext' => '',
                 'size' => 5418,
                 'userid' => 1,
                 'share' => 1,
@@ -208,6 +224,7 @@ class FilesTableSeeder extends Seeder
                 'cid' => 0,
                 'name' => '项目管理',
                 'type' => 'folder',
+                'ext' => '',
                 'size' => 0,
                 'userid' => 1,
                 'share' => 1,
@@ -223,6 +240,7 @@ class FilesTableSeeder extends Seeder
                 'cid' => 0,
                 'name' => '会议纪要',
                 'type' => 'folder',
+                'ext' => '',
                 'size' => 0,
                 'userid' => 1,
                 'share' => 0,
@@ -238,6 +256,7 @@ class FilesTableSeeder extends Seeder
                 'cid' => 0,
                 'name' => '会议发言',
                 'type' => 'word',
+                'ext' => 'docx',
                 'size' => 10994,
                 'userid' => 1,
                 'share' => 1,
@@ -253,6 +272,7 @@ class FilesTableSeeder extends Seeder
                 'cid' => 0,
                 'name' => '产品介绍',
                 'type' => 'ppt',
+                'ext' => 'pptx',
                 'size' => 26882,
                 'userid' => 1,
                 'share' => 1,
@@ -264,5 +284,54 @@ class FilesTableSeeder extends Seeder
         ));
 
 
+        File::whereIn('type', ['mind', 'drawio', 'document'])->where('ext', '')->orderBy('id')->chunk(100, function($files) {
+            /** @var File $file */
+            foreach ($files as $file) {
+                $fileContent = FileContent::whereFid($file->id)->orderByDesc('id')->first();
+                $contentArray = Base::json2array($fileContent?->content);
+                $contentString = '';
+                //
+                switch ($file->type) {
+                    case 'document':
+                        $file->ext = $contentArray['type'] ?: 'md';
+                        $contentString = $contentArray['content'];
+                        break;
+                    case 'drawio':
+                        $file->ext = 'drawio';
+                        $contentString = $contentArray['xml'];
+                        break;
+                    case 'mind':
+                        $file->ext = 'mind';
+                        $contentString = $fileContent?->content;
+                        break;
+                }
+                $file->save();
+                //
+                $path = 'uploads/file/' . $file->type . '/' . date("Ym", Carbon::parse($file->created_at)->timestamp) . '/' . $file->id . '/' . md5($contentString);
+                $save = public_path($path);
+                Base::makeDir(dirname($save));
+                file_put_contents($save, $contentString);
+                $content = [
+                    'type' => $file->ext,
+                    'url' => $path
+                ];
+                //
+                $content = FileContent::createInstance([
+                    'fid' => $file->id,
+                    'content' => $content,
+                    'text' => $fileContent?->text,
+                    'size' => $file->size,
+                    'userid' => $file->userid,
+                ]);
+                $content->save();
+            }
+        });
+
+        File::where('pid', '>', 0)->chunkById(100, function ($lists) {
+            /** @var File $item */
+            foreach ($lists as $item) {
+                $item->saveBeforePids();
+            }
+        });
     }
 }

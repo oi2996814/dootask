@@ -1,30 +1,48 @@
 <template>
-    <div class="project-list">
+    <div class="project-list" :class="[tabTypeActive]">
         <PageTitle :title="projectData.name"/>
         <div class="project-head">
             <div class="project-titbox">
                 <div class="project-title">
                     <h1>{{projectData.name}}</h1>
-                    <div v-if="projectLoad > 0" class="project-load"><Loading/></div>
+                    <label v-if="projectData.top_at" class="top-text">{{$L('置顶')}}</label>
+                    <div v-if="loading" class="project-load"><Loading/></div>
                 </div>
                 <ul class="project-icons">
-                    <li>
-                        <UserAvatar :userid="projectData.owner_userid" :size="36">
-                            <p>{{$L('项目负责人')}}</p>
-                        </UserAvatar>
+                    <li class="project-avatar" :class="{'cursor-default': projectData.owner_userid !== userId}" @click="projectDropdown('user')">
+                        <ul>
+                            <li>
+                                <UserAvatar :userid="projectData.owner_userid" :size="36" :borderWitdh="2" :openDelay="0">
+                                    <p>{{$L('项目负责人')}}</p>
+                                </UserAvatar>
+                                <Badge v-if="(windowWidth <= 980 || projectParameter('chat')) && projectUser.length > 0" type="normal" :count="projectData.project_user.length"/>
+                            </li>
+                            <template v-if="!(windowWidth <= 980 || projectParameter('chat')) && projectUser.length > 0" v-for="item in projectUser">
+                                <li v-if="item.userid === -1" class="more">
+                                    <ETooltip :content="$L('共' + (projectData.project_user.length) + '个成员')">
+                                        <Icon type="ios-more"/>
+                                    </ETooltip>
+                                </li>
+                                <li v-else>
+                                    <UserAvatar :userid="item.userid" :size="36" :borderWitdh="2" :openDelay="0"/>
+                                </li>
+                            </template>
+                        </ul>
                     </li>
                     <li class="project-icon" @click="addTaskOpen(0)">
-                        <Icon class="menu-icon" type="md-add" />
+                        <ETooltip :content="$L('添加任务')">
+                            <Icon class="menu-icon" type="md-add" />
+                        </ETooltip>
                     </li>
                     <li :class="['project-icon', searchText!='' ? 'active' : '']">
-                        <Tooltip :always="searchText!=''" theme="light">
-                            <Icon class="menu-icon" type="ios-search" />
+                        <Tooltip :always="searchText!=''" @on-popper-show="searchFocus" theme="light" :rawIndex="10">
+                            <Icon class="menu-icon" type="ios-search" @click="searchFocus" />
                             <div slot="content">
-                                <Input v-model="searchText" :placeholder="$L('名称、描述...')" class="search-input" clearable autofocus/>
+                                <Input v-model="searchText" ref="searchInput" :placeholder="$L('名称、描述...')" class="search-input" clearable/>
                             </div>
                         </Tooltip>
                     </li>
-                    <li :class="['project-icon', tablePanel('chat') ? 'active' : '']" @click="$store.dispatch('toggleTablePanel', 'chat')">
+                    <li :class="['project-icon', projectParameter('chat') ? 'active' : '']" @click="$store.dispatch('toggleProjectParameter', 'chat')">
                         <Icon class="menu-icon" type="ios-chatbubbles" />
                         <Badge class="menu-badge" :count="msgUnread"></Badge>
                     </li>
@@ -33,9 +51,12 @@
                             <Icon class="menu-icon" type="ios-more" />
                             <EDropdownMenu v-if="projectData.owner_userid === userId" slot="dropdown">
                                 <EDropdownItem command="setting">{{$L('项目设置')}}</EDropdownItem>
-                                <EDropdownItem command="user">{{$L('成员管理')}}</EDropdownItem>
-                                <EDropdownItem command="log">{{$L('项目动态')}}</EDropdownItem>
+                                <EDropdownItem command="workflow">{{$L('工作流设置')}}</EDropdownItem>
+                                <EDropdownItem command="user" divided>{{$L('成员管理')}}</EDropdownItem>
+                                <EDropdownItem command="invite">{{$L('邀请链接')}}</EDropdownItem>
+                                <EDropdownItem command="log" divided>{{$L('项目动态')}}</EDropdownItem>
                                 <EDropdownItem command="archived_task">{{$L('已归档任务')}}</EDropdownItem>
+                                <EDropdownItem command="deleted_task">{{$L('已删除任务')}}</EDropdownItem>
                                 <EDropdownItem command="transfer" divided>{{$L('移交项目')}}</EDropdownItem>
                                 <EDropdownItem command="archived">{{$L('归档项目')}}</EDropdownItem>
                                 <EDropdownItem command="delete" style="color:#f40">{{$L('删除项目')}}</EDropdownItem>
@@ -43,33 +64,43 @@
                             <EDropdownMenu v-else slot="dropdown">
                                 <EDropdownItem command="log">{{$L('项目动态')}}</EDropdownItem>
                                 <EDropdownItem command="archived_task">{{$L('已归档任务')}}</EDropdownItem>
+                                <EDropdownItem command="deleted_task">{{$L('已删除任务')}}</EDropdownItem>
                                 <EDropdownItem command="exit" divided style="color:#f40">{{$L('退出项目')}}</EDropdownItem>
                             </EDropdownMenu>
                         </EDropdown>
                     </li>
                 </ul>
             </div>
-            <div v-if="projectData.desc" class="project-subtitle">{{projectData.desc}}</div>
-            <div class="project-switch">
-                <div v-if="completedCount > 0" class="project-checkbox">
-                    <Checkbox :value="tablePanel('completedTask')" @on-change="$store.dispatch('toggleTablePanel', 'completedTask')">{{$L('显示已完成')}}</Checkbox>
-                </div>
-                <div :class="['project-switch-button', !tablePanel('card') ? 'menu' : '']" @click="$store.dispatch('toggleTablePanel', 'card')">
-                    <div><i class="taskfont">&#xe60c;</i></div>
-                    <div><i class="taskfont">&#xe66a;</i></div>
+            <div class="project-subbox clearfix">
+                <div class="project-subtitle">{{projectData.desc}}</div>
+                <div class="project-switch">
+                    <div v-if="completedCount > 0" class="project-checkbox">
+                        <Checkbox :value="projectParameter('completedTask')" @on-change="toggleCompleted">{{$L('显示已完成')}}</Checkbox>
+                    </div>
+                    <div v-if="flowList.length > 0" class="project-select">
+                        <Cascader :data="flowData" @on-change="flowChange" transfer-class-name="project-list-flow-cascader" transfer>
+                            <span :class="`project-flow ${flowInfo.status}`">{{ flowTitle }}</span>
+                        </Cascader>
+                    </div>
+                    <div class="project-switch-button">
+                        <div class="slider" :style="tabTypeStyle"></div>
+                        <div @click="tabTypeChange('column')" :class="{ 'active': tabTypeActive === 'column'}"><i class="taskfont">&#xe60c;</i></div>
+                        <div @click="tabTypeChange('table')" :class="{ 'active': tabTypeActive === 'table'}"><i class="taskfont">&#xe66a;</i></div>
+                        <div @click="tabTypeChange('gantt')" :class="{ 'active': tabTypeActive === 'gantt'}"><i class="taskfont">&#xe797;</i></div>
+                    </div>
                 </div>
             </div>
         </div>
-        <div v-if="tablePanel('card')" class="project-column">
+        <div v-if="tabTypeActive === 'column'" class="project-column">
             <Draggable
-                :list="projectData.columns"
+                :list="columnList"
                 :animation="150"
-                :disabled="sortDisabled || $store.state.windowMax768"
+                :disabled="sortDisabled || !isDesktop"
                 class="column-list"
                 tag="ul"
                 draggable=".column-item"
                 @sort="sortUpdate(true)">
-                <li v-for="column in projectData.columns" class="column-item">
+                <li v-for="column in columnList" class="column-item">
                     <div
                         :class="['column-head', column.color ? 'custom-color' : '']"
                         :style="column.color ? {backgroundColor: column.color} : {}">
@@ -96,8 +127,7 @@
                                             <Icon type="md-trash" />{{$L('删除')}}
                                         </div>
                                     </EDropdownItem>
-                                    <EDropdownItem divided disabled>{{$L('颜色')}}</EDropdownItem>
-                                    <EDropdownItem v-for="(c, k) in $store.state.columnColorList" :key="k" :command="c">
+                                    <EDropdownItem v-for="(c, k) in $store.state.columnColorList" :key="k" :divided="k==0" :command="c">
                                         <div class="item">
                                             <i class="taskfont" :style="{color:c.color}" v-html="c.color == column.color ? '&#xe61d;' : '&#xe61c;'"></i>{{$L(c.name)}}
                                         </div>
@@ -120,9 +150,10 @@
                         <Draggable
                             :list="column.tasks"
                             :animation="150"
-                            :disabled="sortDisabled || $store.state.windowMax768"
+                            :disabled="sortDisabled || !isDesktop"
                             class="task-list"
                             draggable=".task-draggable"
+                            filter=".complete"
                             group="task"
                             @sort="sortUpdate"
                             @remove="sortUpdate">
@@ -132,47 +163,17 @@
                                 :style="item.color ? {backgroundColor: item.color} : {}"
                                 @click="openTask(item)">
                                 <div :class="['task-head', item.desc ? 'has-desc' : '']">
-                                    <div class="task-title"><pre>{{item.name}}</pre></div>
+                                    <div class="task-title">
+                                        <!--工作流状态-->
+                                        <span v-if="item.flow_item_name" :class="item.flow_item_status" @click.stop="openMenu(item)">{{item.flow_item_name}}</span>
+                                        <!--任务描述-->
+                                        <pre>{{item.name}}</pre>
+                                    </div>
                                     <div class="task-menu" @click.stop="">
-                                        <div v-if="taskLoad[item.id] === true" class="loading"><Loading /></div>
-                                        <EDropdown
-                                            v-else
-                                            trigger="click"
-                                            size="small"
-                                            @command="dropTask(item, $event)">
-                                            <Icon type="ios-more" />
-                                            <EDropdownMenu slot="dropdown" class="project-list-more-dropdown-menu">
-                                                <EDropdownItem v-if="item.complete_at" command="uncomplete">
-                                                    <div class="item red">
-                                                        <Icon type="md-checkmark-circle-outline" />{{$L('标记未完成')}}
-                                                    </div>
-                                                </EDropdownItem>
-                                                <EDropdownItem v-else command="complete">
-                                                    <div class="item">
-                                                        <Icon type="md-radio-button-off" />{{$L('完成')}}
-                                                    </div>
-                                                </EDropdownItem>
-                                                <EDropdownItem command="archived">
-                                                    <div class="item">
-                                                        <Icon type="ios-filing" />{{$L('归档')}}
-                                                    </div>
-                                                </EDropdownItem>
-                                                <EDropdownItem command="remove">
-                                                    <div class="item">
-                                                        <Icon type="md-trash" />{{$L('删除')}}
-                                                    </div>
-                                                </EDropdownItem>
-                                                <EDropdownItem divided disabled>{{$L('背景色')}}</EDropdownItem>
-                                                <EDropdownItem v-for="(c, k) in $store.state.taskColorList" :key="k" :command="c">
-                                                    <div class="item">
-                                                        <i class="taskfont" :style="{color:c.color||'#f9f9f9'}" v-html="c.color == item.color ? '&#xe61d;' : '&#xe61c;'"></i>{{$L(c.name)}}
-                                                    </div>
-                                                </EDropdownItem>
-                                            </EDropdownMenu>
-                                        </EDropdown>
+                                        <TaskMenu :ref="`taskMenu_${item.id}`" :task="item" icon="ios-more"/>
                                     </div>
                                 </div>
-                                <div v-if="item.desc" class="task-desc" v-html="item.desc"></div>
+                                <div v-if="item.desc" class="task-desc"><pre v-html="item.desc"></pre></div>
                                 <div v-if="item.task_tag.length > 0" class="task-tags">
                                     <Tag v-for="(tag, keyt) in item.task_tag" :key="keyt" :color="tag.color">{{tag.name}}</Tag>
                                 </div>
@@ -182,7 +183,7 @@
                                             <UserAvatar :userid="user.userid" size="32" :borderWitdh="2" :borderColor="item.color"/>
                                         </li>
                                         <li v-if="ownerUser(item.task_user).length === 0" class="no-owner">
-                                            <Button type="primary" size="small" ghost>{{$L('领取任务')}}</Button>
+                                            <Button type="primary" size="small" ghost @click.stop="openTask(item, true)">{{$L('领取任务')}}</Button>
                                         </li>
                                     </ul>
                                     <div v-if="item.file_num > 0" class="task-icon">{{item.file_num}}<Icon type="ios-link-outline" /></div>
@@ -227,21 +228,37 @@
                 </li>
             </Draggable>
         </div>
-        <div v-else class="project-table overlay-y">
+        <div v-else-if="tabTypeActive === 'table'" class="project-table overlay-y">
             <div class="project-table-head">
                 <Row class="task-row">
                     <Col span="12"># {{$L('任务名称')}}</Col>
                     <Col span="3">{{$L('列表')}}</Col>
-                    <Col span="3">{{$L('优先级')}}</Col>
+                    <Col span="3">
+                        <div class="sort" @click="onSort('level')">
+                            {{$L('优先级')}}
+                            <div class="task-sort">
+                                <Icon :class="{on:sortField=='level' && sortType=='asc'}" type="md-arrow-dropup" />
+                                <Icon :class="{on:sortField=='level' && sortType=='desc'}" type="md-arrow-dropdown" />
+                            </div>
+                        </div>
+                    </Col>
                     <Col span="3">{{$L('负责人')}}</Col>
-                    <Col span="3">{{$L('到期时间')}}</Col>
+                    <Col span="3">
+                        <div class="sort" @click="onSort('end_at')">
+                            {{$L('到期时间')}}
+                            <div class="task-sort">
+                                <Icon :class="{on:sortField=='end_at' && sortType=='asc'}" type="md-arrow-dropup" />
+                                <Icon :class="{on:sortField=='end_at' && sortType=='desc'}" type="md-arrow-dropdown" />
+                            </div>
+                        </div>
+                    </Col>
                 </Row>
             </div>
             <!--我的任务-->
-            <div :class="['project-table-body', !tablePanel('showMy') ? 'project-table-hide' : '']">
+            <div :class="['project-table-body', !projectParameter('showMy') ? 'project-table-hide' : '']">
                 <Row class="task-row">
                     <Col span="12" class="row-title">
-                        <i class="taskfont" @click="$store.dispatch('toggleTablePanel', 'showMy')">&#xe689;</i>
+                        <i class="taskfont" @click="$store.dispatch('toggleProjectParameter', 'showMy')">&#xe689;</i>
                         <div class="row-h1">{{$L('我的任务')}}</div>
                         <div class="row-num">({{myList.length}})</div>
                     </Col>
@@ -250,71 +267,72 @@
                     <Col span="3"></Col>
                     <Col span="3"></Col>
                 </Row>
-                <TaskRow v-if="tablePanel('showMy')" :list="myList" open-key="my" @command="dropTask" @on-priority="addTaskOpen" fast-add-task/>
+                <TaskRow v-if="projectParameter('showMy')" :list="transforTasks(myList)" open-key="my" @on-priority="addTaskOpen" fast-add-task/>
             </div>
-            <!--未完成任务-->
-            <div v-if="projectData.task_num > 0" :class="['project-table-body', !tablePanel('showUndone') ? 'project-table-hide' : '']">
+            <!--协助的任务-->
+            <div v-if="helpList.length" :class="['project-table-body', !projectParameter('showHelp') ? 'project-table-hide' : '']">
                 <Row class="task-row">
                     <Col span="12" class="row-title">
-                        <i class="taskfont" @click="$store.dispatch('toggleTablePanel', 'showUndone')">&#xe689;</i>
-                        <div class="row-h1">{{$L('未完成任务')}}</div>
-                        <div class="row-num">({{undoneList.length}})</div>
+                        <i class="taskfont" @click="$store.dispatch('toggleProjectParameter', 'showHelp')">&#xe689;</i>
+                        <div class="row-h1">{{$L('协助的任务')}}</div>
+                        <div class="row-num">({{helpList.length}})</div>
                     </Col>
                     <Col span="3"></Col>
                     <Col span="3"></Col>
                     <Col span="3"></Col>
                     <Col span="3"></Col>
                 </Row>
-                <TaskRow v-if="tablePanel('showUndone')" :list="undoneList" open-key="undone" @command="dropTask" @on-priority="addTaskOpen"/>
+                <TaskRow v-if="projectParameter('showHelp')" :list="helpList" open-key="help" @on-priority="addTaskOpen"/>
             </div>
-            <!--已完成任务-->
-            <div v-if="projectData.task_num > 0" :class="['project-table-body', !tablePanel('showCompleted') ? 'project-table-hide' : '']">
+            <!--未完成任务-->
+            <div v-if="projectData.task_num > 0" :class="['project-table-body', !projectParameter('showUndone') ? 'project-table-hide' : '']">
                 <Row class="task-row">
                     <Col span="12" class="row-title">
-                        <i class="taskfont" @click="$store.dispatch('toggleTablePanel', 'showCompleted')">&#xe689;</i>
+                        <i class="taskfont" @click="$store.dispatch('toggleProjectParameter', 'showUndone')">&#xe689;</i>
+                        <div class="row-h1">{{$L('未完成任务')}}</div>
+                        <div class="row-num">({{unList.length}})</div>
+                    </Col>
+                    <Col span="3"></Col>
+                    <Col span="3"></Col>
+                    <Col span="3"></Col>
+                    <Col span="3"></Col>
+                </Row>
+                <TaskRow v-if="projectParameter('showUndone')" :list="unList" open-key="undone" @on-priority="addTaskOpen"/>
+            </div>
+            <!--已完成任务-->
+            <div v-if="projectData.task_num > 0" :class="['project-table-body', !projectParameter('showCompleted') ? 'project-table-hide' : '']">
+                <Row class="task-row">
+                    <Col span="12" class="row-title">
+                        <i class="taskfont" @click="$store.dispatch('toggleProjectParameter', 'showCompleted')">&#xe689;</i>
                         <div class="row-h1">{{$L('已完成任务')}}</div>
                         <div class="row-num">({{completedList.length}})</div>
                     </Col>
                     <Col span="3"></Col>
                     <Col span="3"></Col>
                     <Col span="3"></Col>
-                    <Col span="3"></Col>
+                    <Col span="3">{{projectData.task_num > 0 && projectParameter('showCompleted') ? $L('完成时间') : ''}}</Col>
                 </Row>
-                <TaskRow v-if="tablePanel('showCompleted')" :list="completedList" open-key="completed" @command="dropTask" @on-priority="addTaskOpen"/>
+                <TaskRow v-if="projectParameter('showCompleted')" :list="completedList" open-key="completed" @on-priority="addTaskOpen" showCompleteAt/>
             </div>
         </div>
-
-        <!--添加任务-->
-        <Modal
-            v-model="addShow"
-            :title="$L('添加任务')"
-            :styles="{
-                width: '90%',
-                maxWidth: '640px'
-            }"
-            :mask-closable="false">
-            <TaskAdd ref="add" @on-add="onAddTask"/>
-            <div slot="footer">
-                <Button type="default" @click="addShow=false">{{$L('取消')}}</Button>
-                <Button type="primary" :loading="addLoad > 0" @click="onAddTask">{{$L('添加')}}</Button>
-                <Button type="primary" :loading="addLoad > 0" @click="onAddTask(true)">{{$L('添加并继续')}}</Button>
-            </div>
-        </Modal>
-
+        <div v-else-if="tabTypeActive === 'gantt'" class="project-gantt">
+            <!--甘特图-->
+            <ProjectGantt :projectColumn="columnList" :flowInfo="flowInfo"/>
+        </div>
         <!--项目设置-->
         <Modal
             v-model="settingShow"
             :title="$L('项目设置')"
             :mask-closable="false">
-            <Form ref="addProject" :model="settingData" label-width="auto" @submit.native.prevent>
+            <Form :model="settingData" label-width="auto" @submit.native.prevent>
                 <FormItem prop="name" :label="$L('项目名称')">
                     <Input ref="projectName" type="text" v-model="settingData.name" :maxlength="32" :placeholder="$L('必填')"></Input>
                 </FormItem>
                 <FormItem prop="desc" :label="$L('项目介绍')">
-                    <Input type="textarea" :autosize="{ minRows: 3, maxRows: 5 }" v-model="settingData.desc" :maxlength="255" :placeholder="$L('选填')"></Input>
+                    <Input ref="projectDesc" type="textarea" :autosize="{ minRows: 3, maxRows: 5 }" v-model="settingData.desc" :maxlength="255" :placeholder="$L('选填')"></Input>
                 </FormItem>
             </Form>
-            <div slot="footer">
+            <div slot="footer" class="adaption">
                 <Button type="default" @click="settingShow=false">{{$L('取消')}}</Button>
                 <Button type="primary" :loading="settingLoad > 0" @click="onSetting">{{$L('修改')}}</Button>
             </div>
@@ -325,14 +343,15 @@
             v-model="userShow"
             :title="$L('成员管理')"
             :mask-closable="false">
-            <Form ref="addProject" :model="userData" label-width="auto" @submit.native.prevent>
+            <Form :model="userData" label-width="auto" @submit.native.prevent>
                 <FormItem prop="userids" :label="$L('项目成员')">
-                    <UserInput v-if="userShow" v-model="userData.userids" :uncancelable="userData.uncancelable" :multiple-max="100" :placeholder="$L('选择项目成员')"/>
+                    <UserInput v-model="userData.userids" :uncancelable="userData.uncancelable" :multiple-max="100" :placeholder="$L('选择项目成员')"/>
                 </FormItem>
             </Form>
-            <div slot="footer">
+            <div slot="footer" class="adaption">
                 <Button type="default" @click="userShow=false">{{$L('取消')}}</Button>
                 <Poptip
+                    v-if="userWaitRemove.length > 0"
                     confirm
                     placement="bottom"
                     style="margin-left:8px"
@@ -341,8 +360,42 @@
                     <div slot="title">
                         <p><strong>{{$L('移除成员负责的任务将变成无负责人，')}}</strong></p>
                         <p>{{$L('注意此操作不可逆！')}}</p>
+                        <ul class="project-list-wait-remove">
+                            <li>{{$L('即将移除')}}：</li>
+                            <li v-for="id in userWaitRemove" :key="id">
+                                <UserAvatar :userid="id" :size="20" showName tooltipDisabled/>
+                            </li>
+                        </ul>
                     </div>
                     <Button type="primary" :loading="userLoad > 0">{{$L('保存')}}</Button>
+                </Poptip>
+                <Button v-else type="primary" :loading="userLoad > 0" @click="onUser">{{$L('保存')}}</Button>
+            </div>
+        </Modal>
+
+        <!--邀请链接-->
+        <Modal
+            v-model="inviteShow"
+            :title="$L('邀请链接')"
+            :mask-closable="false">
+            <Form :model="inviteData" label-width="auto" @submit.native.prevent>
+                <FormItem :label="$L('链接地址')">
+                    <Input ref="inviteInput" v-model="inviteData.url" type="textarea" :rows="3" @on-focus="inviteFocus" readonly/>
+                    <div class="form-tip">{{$L('可通过此链接直接加入项目。')}}</div>
+                </FormItem>
+            </Form>
+            <div slot="footer" class="adaption">
+                <Button type="default" @click="inviteShow=false">{{$L('取消')}}</Button>
+                <Poptip
+                    confirm
+                    placement="bottom"
+                    style="margin-left:8px"
+                    @on-ok="inviteGet(true)"
+                    transfer>
+                    <div slot="title">
+                        <p><strong>{{$L('注意：刷新将导致原来的邀请链接失效！')}}</strong></p>
+                    </div>
+                    <Button type="primary" :loading="inviteLoad > 0">{{$L('刷新')}}</Button>
                 </Poptip>
             </div>
         </Modal>
@@ -352,16 +405,25 @@
             v-model="transferShow"
             :title="$L('移交项目')"
             :mask-closable="false">
-            <Form ref="addProject" :model="transferData" label-width="auto" @submit.native.prevent>
+            <Form :model="transferData" label-width="auto" @submit.native.prevent>
                 <FormItem prop="owner_userid" :label="$L('项目负责人')">
-                    <UserInput v-if="transferShow" v-model="transferData.owner_userid" :multiple-max="1" :placeholder="$L('选择项目负责人')"/>
+                    <UserInput v-model="transferData.owner_userid" :multiple-max="1" :placeholder="$L('选择项目负责人')"/>
                 </FormItem>
             </Form>
-            <div slot="footer">
+            <div slot="footer" class="adaption">
                 <Button type="default" @click="transferShow=false">{{$L('取消')}}</Button>
                 <Button type="primary" :loading="transferLoad > 0" @click="onTransfer">{{$L('移交')}}</Button>
             </div>
         </Modal>
+
+        <!--工作流程设置-->
+        <DrawerOverlay
+            v-model="workflowShow"
+            placement="right"
+            :beforeClose="workflowBeforeClose"
+            :size="1280">
+            <ProjectWorkflow ref="workflow" v-if="workflowShow" :project-id="projectId"/>
+        </DrawerOverlay>
 
         <!--查看项目动态-->
         <DrawerOverlay
@@ -375,13 +437,25 @@
         <DrawerOverlay
             v-model="archivedTaskShow"
             placement="right"
-            :size="768">
+            :size="900">
             <TaskArchived v-if="archivedTaskShow" :project-id="projectId"/>
+        </DrawerOverlay>
+
+        <!--查看已删除任务-->
+        <DrawerOverlay
+            v-model="deletedTaskShow"
+            placement="right"
+            :size="900">
+            <TaskDeleted v-if="deletedTaskShow" :project-id="projectId"/>
         </DrawerOverlay>
     </div>
 </template>
 
 <script>
+import Vue from 'vue'
+import VueClipboard from 'vue-clipboard2'
+Vue.use(VueClipboard)
+
 import Draggable from 'vuedraggable'
 import TaskPriority from "./TaskPriority";
 import TaskAdd from "./TaskAdd";
@@ -393,25 +467,32 @@ import TaskRow from "./TaskRow";
 import TaskArchived from "./TaskArchived";
 import ProjectLog from "./ProjectLog";
 import DrawerOverlay from "../../../components/DrawerOverlay";
+import ProjectWorkflow from "./ProjectWorkflow";
+import TaskMenu from "./TaskMenu";
+import TaskDeleted from "./TaskDeleted";
+import ProjectGantt from "./ProjectGantt";
 
 export default {
     name: "ProjectList",
     components: {
+        TaskMenu,
+        ProjectWorkflow,
         DrawerOverlay,
-        ProjectLog, TaskArchived, TaskRow, Draggable, TaskAddSimple, UserInput, TaskAdd, TaskPriority},
+        ProjectLog, TaskArchived, TaskRow, Draggable, TaskAddSimple, UserInput, TaskAdd, TaskPriority, TaskDeleted, ProjectGantt},
     data() {
         return {
+            loading: false,
+
             nowTime: $A.Time(),
             nowInterval: null,
 
             columnLoad: {},
             columnTopShow: {},
-            taskLoad: {},
+
+            sortField: 'end_at',
+            sortType: 'desc',
 
             searchText: '',
-
-            addShow: false,
-            addLoad: 0,
 
             addColumnShow: false,
             addColumnName: '',
@@ -427,14 +508,23 @@ export default {
             userData: {},
             userLoad: 0,
 
+            inviteShow: false,
+            inviteData: {},
+            inviteLoad: 0,
+
             transferShow: false,
             transferData: {},
             transferLoad: 0,
 
+            workflowShow: false,
             logShow: false,
             archivedTaskShow: false,
+            deletedTaskShow: false,
 
-            projectDialogsubscribe: null,
+            projectDialogSubscribe: null,
+
+            flowInfo: {},
+            flowList: [],
         }
     },
 
@@ -443,48 +533,90 @@ export default {
             this.nowTime = $A.Time();
         }, 1000);
         //
-        this.projectDialogsubscribe = Store.subscribe('onProjectDialogBack', () => {
-            this.$store.dispatch('toggleTablePanel', 'chat');
+        this.projectDialogSubscribe = Store.subscribe('onProjectDialogBack', () => {
+            this.$store.dispatch('toggleProjectParameter', 'chat');
         });
     },
 
     destroyed() {
         clearInterval(this.nowInterval);
         //
-        if (this.projectDialogsubscribe) {
-            this.projectDialogsubscribe.unsubscribe();
-            this.projectDialogsubscribe = null;
+        if (this.projectDialogSubscribe) {
+            this.projectDialogSubscribe.unsubscribe();
+            this.projectDialogSubscribe = null;
         }
     },
 
     computed: {
         ...mapState([
-            'userId',
-            'dialogs',
+            'isDesktop',
+            'windowWidth',
 
-            'taskPriority',
+            'userId',
+            'cacheDialogs',
 
             'projectId',
             'projectLoad',
-            'tasks',
-            'columns',
+            'cacheTasks',
+            'cacheColumns',
+
+            'taskCompleteTemps',
         ]),
 
-        ...mapGetters(['projectData', 'tablePanel']),
+        ...mapGetters(['projectData', 'projectParameter', 'transforTasks']),
+
+        tabTypeActive() {
+            return this.projectParameter('menuType')
+        },
+
+        tabTypeStyle() {
+            let style = {}
+            switch (this.tabTypeActive) {
+                case 'column':
+                    style.left = '0'
+                    break
+                case 'table':
+                    style.left = '33.33%'
+                    break
+                case 'gantt':
+                    style.left = '66.66%'
+                    break
+                default:
+                    style.display = 'none'
+            }
+            return style
+        },
+
+        userWaitRemove() {
+            const {userids, useridbak} = this.userData;
+            if (!userids) {
+                return [];
+            }
+            let wait = [];
+            useridbak.some(id => {
+                if (!userids.includes(id)) {
+                    wait.push(id)
+                }
+            })
+            return wait;
+        },
 
         msgUnread() {
-            const {dialogs, projectData} = this;
-            const dialog = dialogs.find(({id}) => id === projectData.dialog_id);
-            return dialog ? dialog.unread : 0;
+            const {cacheDialogs, projectData} = this;
+            const dialog = cacheDialogs.find(({id}) => id === projectData.dialog_id);
+            return dialog ? $A.getDialogUnread(dialog) : 0;
         },
 
         panelTask() {
-            const {searchText} = this;
+            const {searchText, flowInfo} = this;
             return function (list) {
-                if (!this.tablePanel('completedTask')) {
+                if (!this.projectParameter('completedTask')) {
                     list = list.filter(({complete_at}) => {
                         return !complete_at;
                     });
+                }
+                if (flowInfo.value > 0) {
+                    list = list.filter(({flow_item_id}) => flow_item_id === flowInfo.value);
                 }
                 if (searchText) {
                     list = list.filter(({name, desc}) => {
@@ -495,44 +627,116 @@ export default {
             }
         },
 
-        myList() {
-            const {projectId, tasks, searchText, userId} = this;
-            const array = tasks.filter((task) => {
-                if (task.project_id != projectId) {
+        projectUser() {
+            const {projectData, windowWidth} = this;
+            if (!projectData.project_user) {
+                return [];
+            }
+            let max = windowWidth > 1200 ? 8 : 3
+            let list = projectData.project_user.filter(({userid}) => userid != projectData.owner_userid)
+            if (list.length <= max) {
+                return list
+            }
+            let array = list.slice(0, max - 1);
+            array.push({userid: -1})
+            array.push(list[list.length - 1])
+            return array;
+        },
+
+        allTask() {
+            const {cacheTasks, projectId} = this;
+            return cacheTasks.filter(task => {
+                if (task.archived_at) {
                     return false;
                 }
-                if (!this.tablePanel('completedTask')) {
-                    if (task.complete_at) {
-                        return false;
-                    }
+                return task.project_id == projectId
+            })
+        },
+
+        columnList() {
+            const {projectId, cacheColumns, allTask} = this;
+            const list = cacheColumns.filter(({project_id}) => {
+                return project_id == projectId
+            }).sort((a, b) => {
+                if (a.sort != b.sort) {
+                    return a.sort - b.sort;
                 }
-                if (searchText) {
-                    if (!$A.strExists(task.name, searchText) && !$A.strExists(task.desc, searchText)) {
-                        return false;
-                    }
-                }
-                return task.task_user && task.task_user.find(({userid}) => userid == userId);
+                return a.id - b.id;
             });
-            return array.sort((a, b) => {
-                if (a.p_level != b.p_level) {
-                    return a.p_level - b.p_level;
+            list.forEach((column) => {
+                column.tasks = this.transforTasks(allTask.filter(task => {
+                    return task.column_id == column.id;
+                })).sort((a, b) => {
+                    if (a.complete_at || b.complete_at) {
+                        return $A.Date(a.complete_at) - $A.Date(b.complete_at);
+                    }
+                    if (a.sort != b.sort) {
+                        return a.sort - b.sort;
+                    }
+                    return a.id - b.id;
+                });
+            })
+            return list;
+        },
+
+        myList() {
+            const {allTask, taskCompleteTemps, sortField, sortType} = this;
+            let array = allTask.filter(task => this.myFilter(task));
+            if (taskCompleteTemps.length > 0) {
+                let tmps = allTask.filter(task => taskCompleteTemps.includes(task.id) && this.myFilter(task, false));
+                if (tmps.length > 0) {
+                    array = $A.cloneJSON(array)
+                    array.push(...tmps);
                 }
-                let at1 = $A.Date(a.end_at),
-                    at2 = $A.Date(b.end_at);
-                return at1 - at2;
+            }
+            return array.sort((a, b) => {
+                if (sortType == 'asc') {
+                    [a, b] = [b, a];
+                }
+                if (sortField == 'level') {
+                    return a.p_level - b.p_level;
+                } else if (sortField == 'end_at') {
+                    if (a.end_at == b.end_at) {
+                        return a.p_level - b.p_level;
+                    }
+                    return $A.Date(a.end_at || "2099-12-31 23:59:59") - $A.Date(b.end_at || "2099-12-31 23:59:59");
+                }
             });
         },
 
-        undoneList() {
-            const {projectId, tasks, searchText} = this;
-            const array = tasks.filter((task) => {
-                if (task.project_id != projectId) {
+        helpList() {
+            const {allTask, taskCompleteTemps, sortField, sortType} = this;
+            let array = allTask.filter(task => this.helpFilter(task));
+            if (taskCompleteTemps.length > 0) {
+                let tmps = allTask.filter(task => taskCompleteTemps.includes(task.id) && this.helpFilter(task, false));
+                if (tmps.length > 0) {
+                    array = $A.cloneJSON(array)
+                    array.push(...tmps);
+                }
+            }
+            return array.sort((a, b) => {
+                if (sortType == 'asc') {
+                    [a, b] = [b, a];
+                }
+                if (sortField == 'level') {
+                    return a.p_level - b.p_level;
+                } else if (sortField == 'end_at') {
+                    if (a.end_at == b.end_at) {
+                        return a.p_level - b.p_level;
+                    }
+                    return $A.Date(a.end_at || "2099-12-31 23:59:59") - $A.Date(b.end_at || "2099-12-31 23:59:59");
+                }
+            });
+        },
+
+        unList() {
+            const {allTask, searchText, sortField, sortType, flowInfo} = this;
+            const array = allTask.filter(task => {
+                if (task.parent_id > 0) {
                     return false;
                 }
-                if (!this.tablePanel('completedTask')) {
-                    if (task.complete_at) {
-                        return false;
-                    }
+                if (flowInfo.value > 0 && task.flow_item_id !== flowInfo.value) {
+                    return false;
                 }
                 if (searchText) {
                     if (!$A.strExists(task.name, searchText) && !$A.strExists(task.desc, searchText)) {
@@ -542,29 +746,27 @@ export default {
                 return !task.complete_at;
             });
             return array.sort((a, b) => {
-                if (a.p_level != b.p_level) {
-                    return a.p_level - b.p_level;
+                if (sortType == 'asc') {
+                    [a, b] = [b, a];
                 }
-                let at1 = $A.Date(a.end_at),
-                    at2 = $A.Date(b.end_at);
-                return at1 - at2;
+                if (sortField == 'level') {
+                    return a.p_level - b.p_level;
+                } else if (sortField == 'end_at') {
+                    if (a.end_at == b.end_at) {
+                        return a.p_level - b.p_level;
+                    }
+                    return $A.Date(a.end_at || "2099-12-31 23:59:59") - $A.Date(b.end_at || "2099-12-31 23:59:59");
+                }
             });
         },
 
-        completedCount() {
-            const {projectId, tasks} = this;
-            return tasks.filter((task) => {
-                if (task.project_id != projectId) {
+        completedList() {
+            const {allTask, searchText, flowInfo} = this;
+            const array = allTask.filter(task => {
+                if (task.parent_id > 0) {
                     return false;
                 }
-                return task.complete_at;
-            }).length;
-        },
-
-        completedList() {
-            const {projectId, tasks, searchText} = this;
-            const array = tasks.filter((task) => {
-                if (task.project_id != projectId) {
+                if (flowInfo.value > 0 && task.flow_item_id !== flowInfo.value) {
                     return false;
                 }
                 if (searchText) {
@@ -581,30 +783,94 @@ export default {
             });
         },
 
-        expiresFormat() {
-            const {nowTime} = this;
-            return function (date) {
-                let time = Math.round($A.Date(date).getTime() / 1000) - nowTime;
-                if (time < 86400 * 4 && time > 0 ) {
-                    return this.formatSeconds(time);
-                } else if (time <= 0) {
-                    return '-' + this.formatSeconds(time * -1);
+        completedCount() {
+            const {allTask} = this;
+            return allTask.filter(task => {
+                if (task.parent_id > 0) {
+                    return false;
                 }
-                return this.formatTime(date)
+                return task.complete_at;
+            }).length;
+        },
+
+        flowTitle() {
+            const {flowInfo, allTask} = this;
+            if (flowInfo.value) {
+                return flowInfo.label;
             }
+            return `${this.$L('全部')} (${allTask.length})`
+        },
+
+        flowData() {
+            const {flowList, allTask} = this;
+            let list = [{
+                value: 0,
+                label: `${this.$L('全部')} (${allTask.length})`,
+                children: []
+            }];
+            let flows = flowList.map(item1 => {
+                return {
+                    value: item1.id,
+                    label: item1.name,
+                    status: item1.status,
+                    children: item1.project_flow_item.map(item2 => {
+                        let length = allTask.filter(task => {
+                            return task.flow_item_id == item2.id;
+                        }).length
+                        return {
+                            value: item2.id,
+                            label: `${item2.name} (${length})`,
+                            status: item2.status,
+                            class: item2.status
+                        }
+                    })
+                }
+            });
+            if (flows.length === 1) {
+                list.push(...flows[0].children)
+            } else if (flows.length > 0) {
+                list.push(...flows)
+            }
+            return list
         },
     },
 
     watch: {
         projectData() {
             this.sortData = this.getSort();
-        }
+        },
+        projectLoad(n) {
+            this._loadTimeout && clearTimeout(this._loadTimeout)
+            if (n > 0) {
+                this._loadTimeout = setTimeout(() => {
+                    this.loading = true;
+                }, 1000)
+            } else {
+                this.loading = false;
+            }
+        },
+        projectId: {
+            handler(val) {
+                if (val > 0) {
+                    this.getFlowData();
+                }
+            },
+            immediate: true,
+        },
     },
 
     methods: {
+        searchFocus() {
+            this.$nextTick(() => {
+                this.$refs.searchInput.focus({
+                    cursor: "end"
+                });
+            })
+        },
+
         getSort() {
             const sortData = [];
-            this.projectData.columns.forEach((column) => {
+            this.columnList.forEach((column) => {
                 sortData.push({
                     id: column.id,
                     task: column.tasks.map(({id}) => id)
@@ -621,32 +887,59 @@ export default {
             }
             this.sortData = newSort;
             //
+            const data = {
+                project_id: this.projectId,
+                sort: this.sortData,
+                only_column: only_column === true ? 1 : 0
+            };
             this.sortDisabled = true;
             this.$store.dispatch("call", {
                 url: 'project/sort',
-                data: {
-                    project_id: this.projectId,
-                    sort: this.sortData,
-                    only_column: only_column === true ? 1 : 0
-                },
+                data,
             }).then(({msg}) => {
                 $A.messageSuccess(msg);
                 this.sortDisabled = false;
+                //
+                let sort,
+                    upData = [];
+                if (data.only_column) {
+                    sort = -1;
+                    data.sort.forEach((item) => {
+                        sort++;
+                        upData.push({
+                            id: item.id,
+                            sort,
+                        })
+                    })
+                    this.$store.dispatch("saveColumn", upData)
+                } else {
+                    data.sort.forEach((item) => {
+                        sort = -1;
+                        upData.push(...item.task.map(id => {
+                            sort++;
+                            upData.push(...this.allTask.filter(task => {
+                                return task.parent_id == id
+                            }).map(({id}) => {
+                                return {
+                                    id,
+                                    sort,
+                                    column_id: item.id,
+                                }
+                            }))
+                            return {
+                                id,
+                                sort,
+                                column_id: item.id,
+                            }
+                        }))
+                    })
+                    this.$store.dispatch("saveTask", upData)
+                }
             }).catch(({msg}) => {
                 $A.modalError(msg);
                 this.sortDisabled = false;
-                this.$store.dispatch("getTasks", {project_id: this.projectId})
+                this.$store.dispatch("getTaskForProject", this.projectId).catch(() => {})
             });
-        },
-
-        onAddTask(again) {
-            this.addLoad++;
-            this.$refs.add.onAdd((success) => {
-                this.addLoad--;
-                if (success && again !== true) {
-                    this.addShow = false;
-                }
-            }, again)
         },
 
         addTopShow(id, show) {
@@ -657,16 +950,7 @@ export default {
         },
 
         addTaskOpen(column_id) {
-            this.$refs.add.defaultPriority();
-            this.$refs.add.setData($A.isJson(column_id) ? column_id : {
-                'owner': this.userId,
-                'column_id': column_id,
-            });
-            this.$Modal.resetIndex();
-            this.addShow = true;
-            this.$nextTick(() => {
-                this.$refs.add.$refs.input.focus();
-            })
+            Store.set('addTask', column_id);
         },
 
         addColumnOpen() {
@@ -750,7 +1034,7 @@ export default {
                 this.$store.dispatch("saveColumn", data);
             }).catch(({msg}) => {
                 this.$set(this.columnLoad, column.id, false);
-                this.$store.dispatch("getColumns", {project_id: this.projectId})
+                this.$store.dispatch("getColumns", this.projectId).catch(() => {})
                 $A.modalError(msg);
             });
         },
@@ -766,16 +1050,10 @@ export default {
                     }
                     this.$set(this.columnLoad, column.id, true);
                     //
-                    this.$store.dispatch("call", {
-                        url: 'project/column/remove',
-                        data: {
-                            column_id: column.id,
-                        },
-                    }).then(({data, msg}) => {
+                    this.$store.dispatch("removeColumn", column.id).then(({data, msg}) => {
                         $A.messageSuccess(msg);
                         this.$set(this.columnLoad, column.id, false);
                         this.$Modal.remove();
-                        this.$store.dispatch("forgetColumn", data.id);
                     }).catch(({msg}) => {
                         $A.modalError(msg, 301);
                         this.$set(this.columnLoad, column.id, false);
@@ -785,101 +1063,9 @@ export default {
             });
         },
 
-        dropTask(task, command) {
-            if ($A.isJson(command)) {
-                if (command.name) {
-                    // 修改背景色
-                    this.updateTask(task, {
-                        color: command.color
-                    })
-                }
-                return;
-            }
-            if ($A.leftExists(command, 'column::')) {
-                // 修改列表
-                this.updateTask(task, {
-                    column_id: $A.leftDelete(command, 'column::')
-                })
-                return;
-            }
-            if ($A.leftExists(command, 'priority::')) {
-                // 修改优先级
-                let data = this.taskPriority[parseInt($A.leftDelete(command, 'priority::'))];
-                if (data) {
-                    this.updateTask(task, {
-                        p_level: data.priority,
-                        p_name: data.name,
-                        p_color: data.color,
-                    })
-                }
-                return;
-            }
-            switch (command) {
-                case 'complete':
-                    if (task.complete_at) return;
-                    this.updateTask(task, {
-                        complete_at: $A.formatDate("Y-m-d H:i:s")
-                    })
-                    break;
-
-                case 'uncomplete':
-                    if (!task.complete_at) return;
-                    this.updateTask(task, {
-                        complete_at: false
-                    })
-                    break;
-
-                case 'archived':
-                case 'remove':
-                    this.archivedOrRemoveTask(task, command);
-                    break;
-            }
-        },
-
-        updateTask(task, updata) {
-            if (this.taskLoad[task.id] === true) {
-                return;
-            }
-            this.$set(this.taskLoad, task.id, true);
-            //
-            Object.keys(updata).forEach(key => this.$set(task, key, updata[key]));
-            //
-            this.$store.dispatch("taskUpdate", Object.assign(updata, {
-                task_id: task.id,
-            })).then(() => {
-                this.$set(this.taskLoad, task.id, false);
-            }).catch(({msg}) => {
-                $A.modalError(msg);
-                this.$set(this.taskLoad, task.id, false);
-                this.$store.dispatch("getTaskOne", task.id);
-            });
-        },
-
-        archivedOrRemoveTask(task, type) {
-            let typeDispatch = type == 'remove' ? 'removeTask' : 'archivedTask';
-            let typeName = type == 'remove' ? '删除' : '归档';
-            let typeTask = task.parent_id > 0 ? '子任务' : '任务';
-            $A.modalConfirm({
-                title: typeName + typeTask,
-                content: '你确定要' + typeName + typeTask + '【' + task.name + '】吗？',
-                loading: true,
-                onOk: () => {
-                    if (this.taskLoad[task.id] === true) {
-                        this.$Modal.remove();
-                        return;
-                    }
-                    this.$set(this.taskLoad, task.id, true);
-                    this.$store.dispatch(typeDispatch, task.id).then(({msg}) => {
-                        $A.messageSuccess(msg);
-                        this.$Modal.remove();
-                        this.$set(this.taskLoad, task.id, false);
-                    }).catch(({msg}) => {
-                        $A.modalError(msg, 301);
-                        this.$Modal.remove();
-                        this.$set(this.taskLoad, task.id, false);
-                    });
-                }
-            });
+        onSort(field) {
+            this.sortField = field;
+            this.sortType = this.sortType == 'desc' ? 'asc' : 'desc';
         },
 
         onSetting() {
@@ -912,8 +1098,8 @@ export default {
                 $A.messageSuccess(msg);
                 this.userLoad--;
                 this.userShow = false;
-                this.$store.dispatch("getProjectOne", this.projectId);
-                this.$store.dispatch("getTasks", {project_id: this.projectId})
+                this.$store.dispatch("getProjectOne", this.projectId).catch(() => {});
+                this.$store.dispatch("getTaskForProject", this.projectId).catch(() => {})
             }).catch(({msg}) => {
                 $A.modalError(msg);
                 this.userLoad--;
@@ -932,8 +1118,8 @@ export default {
                 $A.messageSuccess(msg);
                 this.transferLoad--;
                 this.transferShow = false;
-                this.$store.dispatch("getProjectOne", this.projectId);
-                this.$store.dispatch("getTasks", {project_id: this.projectId})
+                this.$store.dispatch("getProjectOne", this.projectId).catch(() => {});
+                this.$store.dispatch("getTaskForProject", this.projectId).catch(() => {})
             }).catch(({msg}) => {
                 $A.modalError(msg);
                 this.transferLoad--;
@@ -998,14 +1184,30 @@ export default {
                     this.$set(this.settingData, 'desc', this.projectData.desc);
                     this.settingShow = true;
                     this.$nextTick(() => {
-                        this.$refs.projectName.focus();
+                        this.$refs.projectName.focus()
+                        setTimeout(this.$refs.projectDesc.resizeTextarea, 0)
                     });
                     break;
 
                 case "user":
-                    this.$set(this.userData, 'userids', this.projectData.project_user.map(({userid}) => userid));
+                    if (this.projectData.owner_userid !== this.userId) {
+                        return;
+                    }
+                    const userids = this.projectData.project_user.map(({userid}) => userid);
+                    this.$set(this.userData, 'userids', userids);
+                    this.$set(this.userData, 'useridbak', userids);
                     this.$set(this.userData, 'uncancelable', [this.projectData.owner_userid]);
                     this.userShow = true;
+                    break;
+
+                case "invite":
+                    this.inviteData = {};
+                    this.inviteShow = true;
+                    this.inviteGet()
+                    break;
+
+                case "workflow":
+                    this.workflowShow = true;
                     break;
 
                 case "log":
@@ -1014,6 +1216,10 @@ export default {
 
                 case "archived_task":
                     this.archivedTaskShow = true;
+                    break;
+
+                case "deleted_task":
+                    this.deletedTaskShow = true;
                     break;
 
                 case "transfer":
@@ -1035,21 +1241,33 @@ export default {
             }
         },
 
-        openTask(task) {
-            if (task.parent_id > 0) {
-                this.$store.dispatch("openTask", task.parent_id)
-            } else {
-                this.$store.dispatch("openTask", task.id)
+        openTask(task, receive) {
+            this.$store.dispatch("openTask", task)
+            if (receive === true) {
+                // 向任务窗口发送领取任务请求
+                setTimeout(() => {
+                    Store.set('receiveTask', true);
+                }, 300)
+            }
+        },
+
+        openMenu(task) {
+            const el = this.$refs[`taskMenu_${task.id}`];
+            if (el) {
+                el[0].handleClick()
             }
         },
 
         taskIsHidden(task) {
             const {name, desc, complete_at} = task;
-            const {searchText} = this;
-            if (!this.tablePanel('completedTask')) {
+            const {searchText, flowInfo} = this;
+            if (!this.projectParameter('completedTask')) {
                 if (complete_at) {
                     return true;
                 }
+            }
+            if (flowInfo.value > 0 && task.flow_item_id !== flowInfo.value) {
+                return true;
             }
             if (searchText) {
                 if (!($A.strExists(name, searchText) || $A.strExists(desc, searchText))) {
@@ -1065,40 +1283,144 @@ export default {
             });
         },
 
-        formatTime(date) {
-            let time = Math.round($A.Date(date).getTime() / 1000),
-                string = '';
-            if ($A.formatDate('Ymd') === $A.formatDate('Ymd', time)) {
-                string = $A.formatDate('H:i', time)
-            } else if ($A.formatDate('Y') === $A.formatDate('Y', time)) {
-                string = $A.formatDate('m-d', time)
-            } else {
-                string = $A.formatDate('Y-m-d', time)
-            }
-            return string || '';
+        inviteGet(refresh) {
+            this.inviteLoad++;
+            this.$store.dispatch("call", {
+                url: 'project/invite',
+                data: {
+                    project_id: this.projectId,
+                    refresh: refresh === true ? 'yes' : 'no'
+                },
+            }).then(({data}) => {
+                this.inviteLoad--;
+                this.inviteData = data;
+                this.inviteCopy();
+            }).catch(({msg}) => {
+                $A.modalError(msg);
+                this.inviteLoad--;
+            });
         },
 
-        formatBit(val) {
-            val = +val
-            return val > 9 ? val : '0' + val
+        getFlowData() {
+            this.flowInfo = {}
+            this.$store.dispatch("call", {
+                url: 'project/flow/list',
+                data: {
+                    project_id: this.projectId,
+                },
+            }).then(({data}) => {
+                this.flowList = data;
+            }).catch(() => {
+                this.flowList = [];
+            });
         },
 
-        formatSeconds(second) {
-            let duration
-            let days = Math.floor(second / 86400);
-            let hours = Math.floor((second % 86400) / 3600);
-            let minutes = Math.floor(((second % 86400) % 3600) / 60);
-            let seconds = Math.floor(((second % 86400) % 3600) % 60);
-            if (days > 0) {
-                if (hours > 0) duration = days + "d," + this.formatBit(hours) + "h";
-                else if (minutes > 0) duration = days + "d," + this.formatBit(minutes) + "min";
-                else if (seconds > 0) duration = days + "d," + this.formatBit(seconds) + "s";
-                else duration = days + "d";
+        flowChange(value, data) {
+            this.flowInfo = data.pop();
+        },
+
+        inviteCopy() {
+            if (!this.inviteData.url) {
+                return;
             }
-            else if (hours > 0) duration = this.formatBit(hours) + ":" + this.formatBit(minutes) + ":" + this.formatBit(seconds);
-            else if (minutes > 0) duration = this.formatBit(minutes) + ":" + this.formatBit(seconds);
-            else if (seconds > 0) duration = this.formatBit(seconds) + "s";
-            return duration;
+            this.$copyText(this.inviteData.url).then(() => {
+                $A.messageSuccess(this.$L('复制成功！'));
+            }, () => {
+                $A.messageError(this.$L('复制失败！'));
+            });
+        },
+
+        inviteFocus() {
+            this.$refs.inviteInput.focus({cursor:'all'});
+        },
+
+        toggleCompleted() {
+            this.$store.dispatch("forgetTaskCompleteTemp", true);
+            this.$store.dispatch('toggleProjectParameter', 'completedTask');
+        },
+
+        workflowBeforeClose() {
+            return new Promise(resolve => {
+                if (!this.$refs.workflow.existDiff()) {
+                    resolve()
+                    return
+                }
+                $A.modalConfirm({
+                    content: '设置尚未保存，是否放弃修改？',
+                    cancelText: '取消',
+                    okText: '放弃',
+                    onOk: () => {
+                        resolve()
+                    }
+                });
+            })
+        },
+
+        myFilter(task, chackCompleted = true) {
+            if (!this.projectParameter('completedTask') && chackCompleted === true) {
+                if (task.complete_at) {
+                    return false;
+                }
+            }
+            if (this.flowInfo.value > 0 && task.flow_item_id !== this.flowInfo.value) {
+                return false;
+            }
+            if (this.searchText) {
+                if (!$A.strExists(task.name, this.searchText) && !$A.strExists(task.desc, this.searchText)) {
+                    return false;
+                }
+            }
+            return task.owner;
+        },
+
+        helpFilter(task, chackCompleted = true) {
+            if (task.parent_id > 0) {
+                return false;
+            }
+            if (!this.projectParameter('completedTask') && chackCompleted === true) {
+                if (task.complete_at) {
+                    return false;
+                }
+            }
+            if (this.flowInfo.value > 0 && task.flow_item_id !== this.flowInfo.value) {
+                return false;
+            }
+            if (this.searchText) {
+                if (!$A.strExists(task.name, this.searchText) && !$A.strExists(task.desc, this.searchText)) {
+                    return false;
+                }
+            }
+            return task.task_user && task.task_user.find(({userid, owner}) => userid == this.userId && owner == 0);
+        },
+
+        expiresFormat(date) {
+            return $A.countDownFormat(date, this.nowTime)
+        },
+
+        tabTypeChange(type) {
+            switch (type) {
+                case "column":
+                    this.$store.dispatch('toggleProjectParameter', {
+                        project_id: this.projectId,
+                        key: 'menuType',
+                        value: 'column'
+                    });
+                    break;
+                case "table":
+                    this.$store.dispatch('toggleProjectParameter', {
+                        project_id: this.projectId,
+                        key: 'menuType',
+                        value: 'table'
+                    });
+                    break;
+                case "gantt":
+                    this.$store.dispatch('toggleProjectParameter', {
+                        project_id: this.projectId,
+                        key: 'menuType',
+                        value: 'gantt'
+                    });
+                    break;
+            }
         },
     }
 }

@@ -7,9 +7,8 @@ use Carbon\Carbon;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
- * Class WebSocketDialog
+ * App\Models\WebSocketDialog
  *
- * @package App\Models
  * @property int $id
  * @property string|null $type 对话类型
  * @property string|null $group_type 聊天室类型
@@ -55,11 +54,23 @@ class WebSocketDialog extends AbstractModel
     public function deleteDialog()
     {
         AbstractModel::transaction(function () {
-            WebSocketDialogMsgRead::whereDialogId($this->id)->whereNull('read_at')->update([
-                'read_at' => Carbon::now()
-            ]);
+            WebSocketDialogMsgRead::whereDialogId($this->id)
+                ->whereNull('read_at')
+                ->chunkById(100, function ($list) {
+                    WebSocketDialogMsgRead::onlyMarkRead($list);
+                });
             $this->delete();
         });
+        return true;
+    }
+
+    /**
+     * 还原会话
+     * @return bool
+     */
+    public function recoveryDialog()
+    {
+        $this->restore();
         return true;
     }
 
@@ -107,12 +118,14 @@ class WebSocketDialog extends AbstractModel
         $dialog->last_msg = $last_msg;
         // 未读信息
         $dialog->unread = WebSocketDialogMsgRead::whereDialogId($dialog->id)->whereUserid($userid)->whereReadAt(null)->count();
+        $dialog->mark_unread = $dialog->mark_unread ?? WebSocketDialogUser::whereDialogId($dialog->id)->whereUserid($userid)->value('mark_unread');
         // 对话人数
         $builder = WebSocketDialogUser::whereDialogId($dialog->id);
         $dialog->people = $builder->count();
         // 对方信息
         $dialog->dialog_user = null;
         $dialog->group_info = null;
+        $dialog->top_at = $dialog->top_at ?? WebSocketDialogUser::whereDialogId($dialog->id)->whereUserid($userid)->value('top_at');
         switch ($dialog->type) {
             case "user":
                 $dialog_user = $builder->where('userid', '!=', $userid)->first();
@@ -121,10 +134,10 @@ class WebSocketDialog extends AbstractModel
                 break;
             case "group":
                 if ($dialog->group_type === 'project') {
-                    $dialog->group_info = Project::withTrashed()->select(['id', 'name'])->whereDialogId($dialog->id)->first();
+                    $dialog->group_info = Project::withTrashed()->select(['id', 'name', 'archived_at', 'deleted_at'])->whereDialogId($dialog->id)->first()?->cancelAppend()->cancelHidden();
                     $dialog->name = $dialog->group_info ? $dialog->group_info->name : '';
                 } elseif ($dialog->group_type === 'task') {
-                    $dialog->group_info = ProjectTask::withTrashed()->select(['id', 'name'])->whereDialogId($dialog->id)->first();
+                    $dialog->group_info = ProjectTask::withTrashed()->select(['id', 'name', 'complete_at', 'archived_at', 'deleted_at'])->whereDialogId($dialog->id)->first()?->cancelAppend()->cancelHidden();
                     $dialog->name = $dialog->group_info ? $dialog->group_info->name : '';
                 }
                 break;

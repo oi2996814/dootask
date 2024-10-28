@@ -9,9 +9,8 @@ use Cache;
 use Carbon\Carbon;
 
 /**
- * Class User
+ * App\Models\User
  *
- * @package App\Models
  * @property int $userid
  * @property array $identity 身份
  * @property string|null $az A-Z
@@ -29,8 +28,11 @@ use Carbon\Carbon;
  * @property string|null $line_at 最后在线时间（接口）
  * @property int|null $task_dialog_id 最后打开的任务会话ID
  * @property string|null $created_ip 注册IP
+ * @property string|null $disable_at 禁用时间
+ * @property int|null $email_verity 邮箱是否已验证
  * @property \Illuminate\Support\Carbon|null $created_at
  * @property \Illuminate\Support\Carbon|null $updated_at
+ * @method static \Database\Factories\UserFactory factory(...$parameters)
  * @method static \Illuminate\Database\Eloquent\Builder|User newModelQuery()
  * @method static \Illuminate\Database\Eloquent\Builder|User newQuery()
  * @method static \Illuminate\Database\Eloquent\Builder|User query()
@@ -38,7 +40,9 @@ use Carbon\Carbon;
  * @method static \Illuminate\Database\Eloquent\Builder|User whereChangepass($value)
  * @method static \Illuminate\Database\Eloquent\Builder|User whereCreatedAt($value)
  * @method static \Illuminate\Database\Eloquent\Builder|User whereCreatedIp($value)
+ * @method static \Illuminate\Database\Eloquent\Builder|User whereDisableAt($value)
  * @method static \Illuminate\Database\Eloquent\Builder|User whereEmail($value)
+ * @method static \Illuminate\Database\Eloquent\Builder|User whereEmailVerity($value)
  * @method static \Illuminate\Database\Eloquent\Builder|User whereEncrypt($value)
  * @method static \Illuminate\Database\Eloquent\Builder|User whereIdentity($value)
  * @method static \Illuminate\Database\Eloquent\Builder|User whereLastAt($value)
@@ -60,6 +64,7 @@ class User extends AbstractModel
     protected $primaryKey = 'userid';
 
     protected $hidden = [
+        'disable_at',
         'updated_at',
     ];
 
@@ -178,10 +183,16 @@ class User extends AbstractModel
     public static function reg($email, $password, $other = [])
     {
         //邮箱
-        if (!Base::isMail($email)) {
+        if (!Base::isEmail($email)) {
             throw new ApiException('请输入正确的邮箱地址');
         }
         if (User::email2userid($email) > 0) {
+            $isRegVerify = Base::settingFind('emailSetting', 'reg_verify') === 'open';
+            $user = self::whereUserid(User::email2userid($email))->first();
+            if ($isRegVerify && $user->email_verity === 0) {
+                UserEmailVerification::userEmailSend($user);
+                throw new ApiException('您的账号已注册过，请验证邮箱', ['code' => 'email']);
+            }
             throw new ApiException('邮箱地址已存在');
         }
         //密码

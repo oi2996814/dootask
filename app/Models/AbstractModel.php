@@ -10,13 +10,15 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 
 /**
- * App\Model\AbstractModel
+ * App\Models\AbstractModel
  *
  * @method static \Illuminate\Database\Eloquent\Builder|AbstractModel newModelQuery()
  * @method static \Illuminate\Database\Eloquent\Builder|AbstractModel newQuery()
  * @method static \Illuminate\Database\Eloquent\Builder|AbstractModel query()
  * @method static \Illuminate\Database\Eloquent\Builder|AbstractModel saveOrIgnore()
  * @method static \Illuminate\Database\Eloquent\Builder|AbstractModel getKeyValue()
+ * @method static \Illuminate\Database\Eloquent\Model|object|static|null cancelAppend()
+ * @method static \Illuminate\Database\Eloquent\Model|object|static|null cancelHidden()
  * @method static \Illuminate\Database\Eloquent\Builder|static with($relations)
  * @method static \Illuminate\Database\Query\Builder|static select($columns = [])
  * @method static \Illuminate\Database\Query\Builder|static whereNotIn($column, $values, $boolean = 'and')
@@ -60,6 +62,24 @@ class AbstractModel extends Model
             $this->save();
         }
         return $this->$key;
+    }
+
+    /**
+     * 取消附加值
+     * @return static
+     */
+    protected function scopeCancelAppend()
+    {
+        return $this->setAppends([]);
+    }
+
+    /**
+     * 取消隐藏值
+     * @return static
+     */
+    protected function scopeCancelHidden()
+    {
+        return $this->setHidden([]);
     }
 
     /**
@@ -133,16 +153,23 @@ class AbstractModel extends Model
      * @param $where
      * @param array $update 存在时更新的内容
      * @param array $insert 不存在时插入的内容，如果没有则插入更新内容
+     * @param bool $isInsert 是否是插入数据
      * @return AbstractModel|\Illuminate\Database\Eloquent\Builder|Model|object|static|null
      */
-    public static function updateInsert($where, $update = [], $insert = [])
+    public static function updateInsert($where, $update = [], $insert = [], &$isInsert = true)
     {
         $row = static::where($where)->first();
         if (empty($row)) {
             $row = new static;
-            $row->updateInstance(array_merge($where, $insert ?: $update));
+            $array = array_merge($where, $insert ?: $update);
+            if (isset($array[$row->primaryKey])) {
+                unset($array[$row->primaryKey]);
+            }
+            $row->updateInstance($array);
+            $isInsert = true;
         } elseif ($update) {
             $row->updateInstance($update);
+            $isInsert = false;
         }
         if (!$row->save()) {
             return null;

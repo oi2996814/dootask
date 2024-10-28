@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Api;
 
 use App\Models\User;
 use App\Module\Base;
+use Guanguans\Notify\Factory;
+use Guanguans\Notify\Messages\EmailMessage;
 use Request;
 use Response;
 
@@ -24,7 +26,8 @@ class SystemController extends AbstractController
      *
      * @apiParam {String} type
      * - get: 获取（默认）
-     * - save: 保存设置（参数：reg、login_code、password_policy、chat_nickname）
+     * - all: 获取所有（需要管理员权限）
+     * - save: 保存设置（参数：['reg', 'reg_invite', 'login_code', 'password_policy', 'project_invite', 'chat_nickname', 'auto_archived', 'archived_day', 'start_home', 'home_footer']）
 
      * @apiSuccess {Number} ret     返回状态码（1正确、0错误）
      * @apiSuccess {String} msg     返回信息（错误描述）
@@ -40,8 +43,27 @@ class SystemController extends AbstractController
             User::auth('admin');
             $all = Request::input();
             foreach ($all AS $key => $value) {
-                if (!in_array($key, ['reg', 'login_code', 'password_policy', 'chat_nickname'])) {
+                if (!in_array($key, [
+                    'reg',
+                    'reg_invite',
+                    'login_code',
+                    'password_policy',
+                    'project_invite',
+                    'chat_nickname',
+                    'auto_archived',
+                    'archived_day',
+                    'start_home',
+                    'home_footer'
+                ])) {
                     unset($all[$key]);
+                }
+            }
+            $all['archived_day'] = floatval($all['archived_day']);
+            if ($all['auto_archived'] == 'open') {
+                if ($all['archived_day'] <= 0) {
+                    return Base::retError('自动归档时间不可小于1天！');
+                } elseif ($all['archived_day'] > 100) {
+                    return Base::retError('自动归档时间不可大于100天！');
                 }
             }
             $setting = Base::setting('system', Base::newTrim($all));
@@ -49,16 +71,82 @@ class SystemController extends AbstractController
             $setting = Base::setting('system');
         }
         //
+        if ($type == 'all' || $type == 'save') {
+            User::auth('admin');
+            $setting['reg_invite'] = $setting['reg_invite'] ?: Base::generatePassword(8);
+        } else {
+            if (isset($setting['reg_invite'])) unset($setting['reg_invite']);
+        }
+        //
         $setting['reg'] = $setting['reg'] ?: 'open';
         $setting['login_code'] = $setting['login_code'] ?: 'auto';
         $setting['password_policy'] = $setting['password_policy'] ?: 'simple';
+        $setting['project_invite'] = $setting['project_invite'] ?: 'open';
         $setting['chat_nickname'] = $setting['chat_nickname'] ?: 'optional';
+        $setting['auto_archived'] = $setting['auto_archived'] ?: 'close';
+        $setting['archived_day'] = floatval($setting['archived_day']) ?: 7;
+        $setting['start_home'] = $setting['start_home'] ?: 'close';
         //
         return Base::retSuccess('success', $setting ?: json_decode('{}'));
     }
 
     /**
-     * @api {get} api/system/demo          02. 获取演示账号
+     * @api {get} api/system/setting/email          02. 获取邮箱设置、保存邮箱设置（限管理员）
+     *
+     * @apiVersion 1.0.0
+     * @apiGroup system
+     * @apiName setting__email
+     *
+     * @apiParam {String} type
+     * - get: 获取（默认）
+     * - save: 保存设置（参数：['smtp_server', 'port', 'account', 'password', 'reg_verify', 'notice', 'task_remind_hours', 'task_remind_hours2']）
+     * @apiSuccess {Number} ret     返回状态码（1正确、0错误）
+     * @apiSuccess {String} msg     返回信息（错误描述）
+     * @apiSuccess {Object} data    返回数据
+     */
+    public function setting__email()
+    {
+        User::auth('admin');
+        //
+        $type = trim(Request::input('type'));
+        if ($type == 'save') {
+            if (env("SYSTEM_SETTING") == 'disabled') {
+                return Base::retError('当前环境禁止修改');
+            }
+            $all = Request::input();
+            foreach ($all as $key => $value) {
+                if (!in_array($key, [
+                    'smtp_server',
+                    'port',
+                    'account',
+                    'password',
+                    'reg_verify',
+                    'notice',
+                    'task_remind_hours',
+                    'task_remind_hours2'
+                ])) {
+                    unset($all[$key]);
+                }
+            }
+            $setting = Base::setting('emailSetting', Base::newTrim($all));
+        } else {
+            $setting = Base::setting('emailSetting');
+        }
+        //
+        $setting['smtp_server'] = $setting['smtp_server'] ?: '';
+        $setting['port'] = $setting['port'] ?: '';
+        $setting['account'] = $setting['account'] ?: '';
+        $setting['password'] = $setting['password'] ?: '';
+        $setting['reg_verify'] = $setting['reg_verify'] ?: 'close';
+        $setting['notice'] = $setting['notice'] ?: 'open';
+        $setting['task_remind_hours'] = floatval($setting['task_remind_hours']) ?: 0;
+        $setting['task_remind_hours2'] = floatval($setting['task_remind_hours2']) ?: 0;
+        //
+        return Base::retSuccess('success', $setting ?: json_decode('{}'));
+    }
+
+    /**
+     * @api {get} api/system/demo          03. 获取演示账号
      *
      * @apiVersion 1.0.0
      * @apiGroup system
@@ -82,12 +170,16 @@ class SystemController extends AbstractController
     }
 
     /**
-     * @api {post} api/system/priority          03. 获取优先级、保存优先级
+     * @api {post} api/system/priority          04. 任务优先级
      *
+     * @apiDescription 获取任务优先级、保存任务优先级
      * @apiVersion 1.0.0
      * @apiGroup system
      * @apiName priority
      *
+     * @apiParam {String} type
+     * - get: 获取（默认）
+     * - save: 保存（限管理员）
      * @apiParam {Array} list   优先级数据，格式：[{name,color,days,priority}]
      *
      * @apiSuccess {Number} ret     返回状态码（1正确、0错误）
@@ -105,7 +197,7 @@ class SystemController extends AbstractController
                 return Base::retError('参数错误');
             }
             foreach ($list AS $item) {
-                if (empty($item['name']) || empty($item['color']) || empty($item['days']) || empty($item['priority'])) {
+                if (empty($item['name']) || empty($item['color']) || empty($item['priority'])) {
                     continue;
                 }
                 $array[] = [
@@ -127,7 +219,54 @@ class SystemController extends AbstractController
     }
 
     /**
-     * @api {get} api/system/get/info          04. 获取终端详细信息
+     * @api {post} api/system/column/template          05. 创建项目模板
+     *
+     * @apiDescription 获取创建项目模板、保存创建项目模板
+     * @apiVersion 1.0.0
+     * @apiGroup system
+     * @apiName column__template
+     *
+     * @apiParam {String} type
+     * - get: 获取（默认）
+     * - save: 保存（限管理员）
+     * @apiParam {Array} list   优先级数据，格式：[{name,columns}]
+     *
+     * @apiSuccess {Number} ret     返回状态码（1正确、0错误）
+     * @apiSuccess {String} msg     返回信息（错误描述）
+     * @apiSuccess {Object} data    返回数据
+     */
+    public function column__template()
+    {
+        $type = trim(Request::input('type'));
+        if ($type == 'save') {
+            User::auth('admin');
+            $list = Base::getPostValue('list');
+            $array = [];
+            if (empty($list) || !is_array($list)) {
+                return Base::retError('参数错误');
+            }
+            foreach ($list AS $item) {
+                if (empty($item['name']) || empty($item['columns'])) {
+                    continue;
+                }
+                $array[] = [
+                    'name' => $item['name'],
+                    'columns' => array_values(array_filter(array_unique(explode(",", $item['columns']))))
+                ];
+            }
+            if (empty($array)) {
+                return Base::retError('参数为空');
+            }
+            $setting = Base::setting('columnTemplate', $array);
+        } else {
+            $setting = Base::setting('columnTemplate');
+        }
+        //
+        return Base::retSuccess('success', $setting);
+    }
+
+    /**
+     * @api {get} api/system/get/info          06. 获取终端详细信息
      *
      * @apiVersion 1.0.0
      * @apiGroup system
@@ -156,7 +295,7 @@ class SystemController extends AbstractController
     }
 
     /**
-     * @api {get} api/system/get/ip          05. 获取IP地址
+     * @api {get} api/system/get/ip          07. 获取IP地址
      *
      * @apiVersion 1.0.0
      * @apiGroup system
@@ -171,7 +310,7 @@ class SystemController extends AbstractController
     }
 
     /**
-     * @api {get} api/system/get/cnip          06. 是否中国IP地址
+     * @api {get} api/system/get/cnip          08. 是否中国IP地址
      *
      * @apiVersion 1.0.0
      * @apiGroup system
@@ -188,7 +327,7 @@ class SystemController extends AbstractController
     }
 
     /**
-     * @api {get} api/system/get/ipgcj02          07. 获取IP地址经纬度
+     * @api {get} api/system/get/ipgcj02          09. 获取IP地址经纬度
      *
      * @apiVersion 1.0.0
      * @apiGroup system
@@ -205,7 +344,7 @@ class SystemController extends AbstractController
     }
 
     /**
-     * @api {get} api/system/get/ipinfo          08. 获取IP地址详细信息
+     * @api {get} api/system/get/ipinfo          10. 获取IP地址详细信息
      *
      * @apiVersion 1.0.0
      * @apiGroup system
@@ -219,89 +358,6 @@ class SystemController extends AbstractController
      */
     public function get__ipinfo() {
         return Base::getIpInfo(Request::input("ip"));
-    }
-
-    /**
-     * @api {get} api/system/get/appinfo          09. 获取应用下载信息
-     *
-     * @apiVersion 1.0.0
-     * @apiGroup system
-     * @apiName get__appinfo
-     *
-     * @apiSuccess {Number} ret     返回状态码（1正确、0错误）
-     * @apiSuccess {String} msg     返回信息（错误描述）
-     * @apiSuccess {Object} data    返回数据
-     */
-    public function get__appinfo() {
-        $array = [
-            'name' => '',
-            'version' => '',
-            'list' => [],
-        ];
-        //
-        $files = [
-            base_path("package.json"),
-            base_path("electron/package.json")
-        ];
-        $dist = base_path("electron/dist");
-        foreach ($files as $file) {
-            if (file_exists($file)) {
-                $packageArray = json_decode(file_get_contents($file), true);
-                $array['name'] = $packageArray['name'] ?? 'No app';
-                $array['version'] = $packageArray['version'] ?? '';
-                //
-                $list = [
-                    [
-                        'icon' => 'logo-apple',
-                        'name' => 'macOS Intel',
-                        'file' => "{$array['name']}-{$array['version']}.dmg"
-                    ],
-                    [
-                        'icon' => 'logo-apple',
-                        'name' => 'macOS M1',
-                        'file' => "{$array['name']}-{$array['version']}-arm64.dmg"
-                    ],
-                    [
-                        'icon' => 'logo-windows',
-                        'name' => 'Windows x64',
-                        'file' => "{$array['name']} Setup {$array['version']}.exe"
-                    ]
-                ];
-                foreach ($list as $item) {
-                    if (file_exists("{$dist}/{$item['file']}")) {
-                        $item['url'] = Base::fillUrl('api/system/get/appdown?file=' . urlencode($item['file']));
-                        $item['size'] = filesize("{$dist}/{$item['file']}");
-                        $array['list'][] = $item;
-                    }
-                }
-            }
-            if (count($array['list']) > 0) {
-                break;
-            }
-        }
-        //
-        if (count($array['list']) == 0) {
-            return Base::retError('No file');
-        }
-        return Base::retSuccess('success', $array);
-    }
-
-    /**
-     * @api {get} api/system/get/appdown          10. 下载应用
-     *
-     * @apiVersion 1.0.0
-     * @apiGroup system
-     * @apiName get__appdown
-     *
-     * @apiParam {String} file        文件名称
-     */
-    public function get__appdown() {
-        $file = Request::input("file");
-        $path = base_path("electron/dist/" . $file);
-        if (!file_exists($path)) {
-            return Base::ajaxError("No file");
-        }
-        return Response::download($path);
     }
 
     /**
@@ -328,7 +384,7 @@ class SystemController extends AbstractController
         if (!$scale[0] && !$scale[1]) {
             $scale = [2160, 4160, -1];
         }
-        $path = "uploads/picture/" . User::userid() . "/" . date("Ym") . "/";
+        $path = "uploads/user/picture/" . User::userid() . "/" . date("Ym") . "/";
         $image64 = trim(Base::getPostValue('image64'));
         $fileName = trim(Base::getPostValue('filename'));
         if ($image64) {
@@ -373,7 +429,7 @@ class SystemController extends AbstractController
         if (User::userid() === 0) {
             return Base::retError('身份失效，等重新登录');
         }
-        $publicPath = "uploads/picture/" . User::userid() . "/";
+        $publicPath = "uploads/user/picture/" . User::userid() . "/";
         $dirPath = public_path($publicPath);
         $dirs = $files = [];
         //
@@ -471,7 +527,7 @@ class SystemController extends AbstractController
         if (User::userid() === 0) {
             return Base::retError('身份失效，等重新登录');
         }
-        $path = "uploads/files/" . User::userid() . "/" . date("Ym") . "/";
+        $path = "uploads/user/file/" . User::userid() . "/" . date("Ym") . "/";
         $image64 = trim(Base::getPostValue('image64'));
         $fileName = trim(Base::getPostValue('filename'));
         if ($image64) {
@@ -490,5 +546,67 @@ class SystemController extends AbstractController
         }
         //
         return $data;
+    }
+
+    /**
+     * @api {get} api/system/get/starthome          14. 启动首页设置信息
+     *
+     * @apiDescription 用于判断注册是否需要启动首页
+     * @apiVersion 1.0.0
+     * @apiGroup system
+     * @apiName get__starthome
+     *
+     * @apiSuccess {Number} ret     返回状态码（1正确、0错误）
+     * @apiSuccess {String} msg     返回信息（错误描述）
+     * @apiSuccess {Object} data    返回数据
+     */
+    public function get__starthome()
+    {
+        return Base::retSuccess('success', [
+            'need_start' => Base::settingFind('system', 'start_home') == 'open',
+            'home_footer' => Base::settingFind('system', 'home_footer')
+        ]);
+    }
+
+    /**
+     * @api {get} api/system/email/check          15. 邮件发送测试（限管理员）
+     *
+     * @apiDescription 测试配置邮箱是否能发送邮件
+     * @apiVersion 1.0.0
+     * @apiGroup system
+     * @apiName email__check
+     *
+     * @apiSuccess {Number} ret     返回状态码（1正确、0错误）
+     * @apiSuccess {String} msg     返回信息（错误描述）
+     * @apiSuccess {Object} data    返回数据
+     */
+    public function email__check()
+    {
+        User::auth('admin');
+        //
+        $all = Request::input();
+        if (!Base::isEmail($all['to'])) {
+            return Base::retError('请输入正确的收件人地址');
+        }
+        try {
+            Factory::mailer()
+                ->setDsn("smtp://{$all['account']}:{$all['password']}@{$all['smtp_server']}:{$all['port']}?verify_peer=0")
+                ->setMessage(EmailMessage::create()
+                    ->from(env('APP_NAME', 'Task') . " <{$all['account']}>")
+                    ->to($all['to'])
+                    ->subject('Mail sending test')
+                    ->html('<p>收到此电子邮件意味着您的邮箱配置正确。</p><p>Receiving this email means that your mailbox is configured correctly.</p>'))
+                ->send();
+            return Base::retSuccess('成功发送');
+        } catch (\Exception $e) {
+            // 一般是请求超时
+            if (str_contains($e->getMessage(), "Timed Out")) {
+                return Base::retError("language.TimedOut");
+            } elseif ($e->getCode() === 550) {
+                return Base::retError('邮件内容被拒绝，请检查邮箱是否开启接收功能');
+            } else {
+                return Base::retError($e->getMessage());
+            }
+        }
     }
 }

@@ -3,40 +3,36 @@
 namespace App\Models;
 
 use App\Exceptions\ApiException;
+use App\Module\Base;
 use App\Tasks\PushTask;
 use Carbon\Carbon;
+use DB;
 use Hhxsv5\LaravelS\Swoole\Task\Task;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Request;
 
 /**
- * Class Project
+ * App\Models\Project
  *
- * @package App\Models
  * @property int $id
  * @property string|null $name 名称
  * @property string|null $desc 描述、备注
  * @property int|null $userid 创建人
- * @property int|mixed $dialog_id 聊天会话ID
+ * @property int|null $dialog_id 聊天会话ID
  * @property string|null $archived_at 归档时间
  * @property int|null $archived_userid 归档会员
  * @property \Illuminate\Support\Carbon|null $created_at
  * @property \Illuminate\Support\Carbon|null $updated_at
  * @property \Illuminate\Support\Carbon|null $deleted_at
  * @property-read int $owner_userid
- * @property-read int $task_complete
- * @property-read int $task_my_complete
- * @property-read int $task_my_num
- * @property-read int $task_my_percent
- * @property-read int $task_num
- * @property-read int $task_percent
  * @property-read \Illuminate\Database\Eloquent\Collection|\App\Models\ProjectColumn[] $projectColumn
  * @property-read int|null $project_column_count
  * @property-read \Illuminate\Database\Eloquent\Collection|\App\Models\ProjectLog[] $projectLog
  * @property-read int|null $project_log_count
  * @property-read \Illuminate\Database\Eloquent\Collection|\App\Models\ProjectUser[] $projectUser
  * @property-read int|null $project_user_count
- * @method static \Illuminate\Database\Eloquent\Builder|Project authData($userid = null)
+ * @method static \Illuminate\Database\Eloquent\Builder|Project allData($userid = null)
+ * @method static \Illuminate\Database\Eloquent\Builder|Project authData($userid = null, $owner = null)
  * @method static \Illuminate\Database\Eloquent\Builder|Project newModelQuery()
  * @method static \Illuminate\Database\Eloquent\Builder|Project newQuery()
  * @method static \Illuminate\Database\Query\Builder|Project onlyTrashed()
@@ -59,98 +55,13 @@ class Project extends AbstractModel
 {
     use SoftDeletes;
 
-    const projectSelect = [
-        'projects.*',
-        'project_users.owner',
+    protected $hidden = [
+        'deleted_at',
     ];
 
     protected $appends = [
-        'task_num',
-        'task_complete',
-        'task_percent',
-        'task_my_num',
-        'task_my_complete',
-        'task_my_percent',
         'owner_userid',
     ];
-
-    /**
-     * 生成任务数据
-     */
-    private function generateTaskData()
-    {
-        if (!isset($this->appendattrs['task_num'])) {
-            $builder = ProjectTask::whereProjectId($this->id)->whereParentId(0)->whereNull('archived_at');
-            $this->appendattrs['task_num'] = $builder->count();
-            $this->appendattrs['task_complete'] = $builder->whereNotNull('complete_at')->count();
-            $this->appendattrs['task_percent'] = $this->appendattrs['task_num'] ? intval($this->appendattrs['task_complete'] / $this->appendattrs['task_num'] * 100) : 0;
-            //
-            $builder = ProjectTask::whereProjectId($this->id)->whereParentId(0)->authData(User::userid())->whereNull('archived_at');
-            $this->appendattrs['task_my_num'] = $builder->count();
-            $this->appendattrs['task_my_complete'] = $builder->whereNotNull('complete_at')->count();
-            $this->appendattrs['task_my_percent'] = $this->appendattrs['task_my_num'] ? intval($this->appendattrs['task_my_complete'] / $this->appendattrs['task_my_num'] * 100) : 0;
-        }
-    }
-
-    /**
-     * 任务数量
-     * @return int
-     */
-    public function getTaskNumAttribute()
-    {
-        $this->generateTaskData();
-        return $this->appendattrs['task_num'];
-    }
-
-    /**
-     * 任务完成数量
-     * @return int
-     */
-    public function getTaskCompleteAttribute()
-    {
-        $this->generateTaskData();
-        return $this->appendattrs['task_complete'];
-    }
-
-    /**
-     * 任务完成率
-     * @return int
-     */
-    public function getTaskPercentAttribute()
-    {
-        $this->generateTaskData();
-        return $this->appendattrs['task_percent'];
-    }
-
-    /**
-     * 任务数量（我的）
-     * @return int
-     */
-    public function getTaskMyNumAttribute()
-    {
-        $this->generateTaskData();
-        return $this->appendattrs['task_my_num'];
-    }
-
-    /**
-     * 任务完成数量（我的）
-     * @return int
-     */
-    public function getTaskMyCompleteAttribute()
-    {
-        $this->generateTaskData();
-        return $this->appendattrs['task_my_complete'];
-    }
-
-    /**
-     * 任务完成率（我的）
-     * @return int
-     */
-    public function getTaskMyPercentAttribute()
-    {
-        $this->generateTaskData();
-        return $this->appendattrs['task_my_percent'];
-    }
 
     /**
      * 负责人会员ID
@@ -159,7 +70,7 @@ class Project extends AbstractModel
     public function getOwnerUseridAttribute()
     {
         if (!isset($this->appendattrs['owner_userid'])) {
-            $ownerUser = $this->projectUser->where('owner', 1)->first();
+            $ownerUser = ProjectUser::whereProjectId($this->id)->whereOwner(1)->first();
             $this->appendattrs['owner_userid'] = $ownerUser ? $ownerUser->userid : 0;
         }
         return $this->appendattrs['owner_userid'];
@@ -190,17 +101,71 @@ class Project extends AbstractModel
     }
 
     /**
-     * 查询自己的项目
+     * 查询所有项目（与正常查询多返回owner字段）
      * @param self $query
      * @param null $userid
      * @return self
      */
-    public function scopeAuthData($query, $userid = null)
+    public function scopeAllData($query, $userid = null)
     {
         $userid = $userid ?: User::userid();
-        $query->join('project_users', 'projects.id', '=', 'project_users.project_id')
-            ->where('project_users.userid', $userid);
+        $query
+            ->select([
+                'projects.*',
+                'project_users.owner',
+                'project_users.top_at',
+            ])
+            ->leftJoin('project_users', function ($leftJoin) use ($userid) {
+                $leftJoin
+                    ->on('project_users.userid', '=', DB::raw($userid))
+                    ->on('projects.id', '=', 'project_users.project_id');
+            });
         return $query;
+    }
+
+    /**
+     * 查询自己负责或参与的项目
+     * @param self $query
+     * @param null $userid
+     * @param null $owner
+     * @return self
+     */
+    public function scopeAuthData($query, $userid = null, $owner = null)
+    {
+        $userid = $userid ?: User::userid();
+        $query
+            ->select([
+                'projects.*',
+                'project_users.owner',
+                'project_users.top_at',
+            ])
+            ->join('project_users', 'projects.id', '=', 'project_users.project_id')
+            ->where('project_users.userid', $userid);
+        if ($owner !== null) {
+            $query->where('project_users.owner', $owner);
+        }
+        return $query;
+    }
+
+    /**
+     * 获取任务统计数据
+     * @param $userid
+     * @return array
+     */
+    public function getTaskStatistics($userid)
+    {
+        $array = [];
+        $builder = ProjectTask::whereProjectId($this->id)->whereNull('archived_at');
+        $array['task_num'] = $builder->count();
+        $array['task_complete'] = $builder->whereNotNull('complete_at')->count();
+        $array['task_percent'] = $array['task_num'] ? intval($array['task_complete'] / $array['task_num'] * 100) : 0;
+        //
+        $builder = ProjectTask::authData($userid, 1)->where('project_tasks.project_id', $this->id)->whereNull('project_tasks.archived_at');
+        $array['task_my_num'] = $builder->count();
+        $array['task_my_complete'] = $builder->whereNotNull('project_tasks.complete_at')->count();
+        $array['task_my_percent'] = $array['task_my_num'] ? intval($array['task_my_complete'] / $array['task_my_num'] * 100) : 0;
+        //
+        return $array;
     }
 
     /**
@@ -249,7 +214,7 @@ class Project extends AbstractModel
      */
     public function relationUserids()
     {
-        return $this->projectUser->pluck('userid')->toArray();
+        return ProjectUser::whereProjectId($this->id)->orderBy('id')->pluck('userid')->toArray();
     }
 
     /**
@@ -277,6 +242,7 @@ class Project extends AbstractModel
             if ($archived_at === null) {
                 // 取消归档
                 $this->archived_at = null;
+                $this->archived_userid = User::userid();
                 $this->addLog("项目取消归档");
                 $this->pushMsg('add', $this);
                 ProjectTask::whereProjectId($this->id)->whereArchivedFollow(1)->update([
@@ -322,18 +288,23 @@ class Project extends AbstractModel
     /**
      * 添加项目日志
      * @param string $detail
+     * @param array $record
      * @param int $userid
      * @return ProjectLog
      */
-    public function addLog($detail, $userid = 0)
+    public function addLog($detail, $record = [], $userid = 0)
     {
-        $log = ProjectLog::createInstance([
+        $array = [
             'project_id' => $this->id,
             'column_id' => 0,
             'task_id' => 0,
             'userid' => $userid ?: User::userid(),
             'detail' => $detail,
-        ]);
+        ];
+        if ($record) {
+            $array['record'] = $record;
+        }
+        $log = ProjectLog::createInstance($array);
         $log->save();
         return $log;
     }
@@ -341,44 +312,179 @@ class Project extends AbstractModel
     /**
      * 推送消息
      * @param string $action
-     * @param array $data       发送内容，默认为[id=>项目ID]
-     * @param array $userid     指定会员，默认为项目所有成员
+     * @param array|self $data      发送内容，默认为[id=>项目ID]
+     * @param array $userid         指定会员，默认为项目所有成员
      */
     public function pushMsg($action, $data = null, $userid = null)
     {
         if ($data === null) {
             $data = ['id' => $this->id];
+        } elseif ($data instanceof self) {
+            $data = $data->toArray();
         }
+        //
+        $array = [$userid, []];
         if ($userid === null) {
-            $userid = $this->relationUserids();
+            $array[0] = $this->relationUserids();
+        } elseif (!is_array($userid)) {
+            $array[0] = [$userid];
         }
-        $params = [
-            'ignoreFd' => Request::header('fd'),
-            'userid' => $userid,
-            'msg' => [
-                'type' => 'project',
-                'action' => $action,
-                'data' => $data,
-            ]
-        ];
-        $task = new PushTask($params, false);
-        Task::deliver($task);
+        //
+        if (isset($data['owner'])) {
+            $owners = ProjectUser::whereProjectId($data['id'])->whereOwner(1)->pluck('userid')->toArray();
+            $array = [array_intersect($array[0], $owners), array_diff($array[0], $owners)];
+        }
+        //
+        foreach ($array as $index => $item) {
+            if ($index > 0) {
+                $data['owner'] = 0;
+            }
+            $params = [
+                'ignoreFd' => Request::header('fd'),
+                'userid' => array_values($item),
+                'msg' => [
+                    'type' => 'project',
+                    'action' => $action,
+                    'data' => $data,
+                ]
+            ];
+            $task = new PushTask($params, false);
+            Task::deliver($task);
+        }
     }
 
     /**
-     * 根据用户获取项目信息（用于判断会员是否存在项目内）
+     * 添加工作流
+     * @param $flows
+     * @return mixed
+     */
+    public function addFlow($flows)
+    {
+        return AbstractModel::transaction(function() use ($flows) {
+            $projectFlow = ProjectFlow::whereProjectId($this->id)->first();
+            if (empty($projectFlow)) {
+                $projectFlow = ProjectFlow::createInstance([
+                    'project_id' => $this->id,
+                    'name' => 'Default'
+                ]);
+                if (!$projectFlow->save()) {
+                    throw new ApiException('工作流创建失败');
+                }
+            }
+            //
+            $ids = [];
+            $idc = [];
+            $hasStart = false;
+            $hasEnd = false;
+            $upTaskList = [];
+            foreach ($flows as $item) {
+                $id = intval($item['id']);
+                $turns = Base::arrayRetainInt($item['turns'] ?: [], true);
+                $userids = Base::arrayRetainInt($item['userids'] ?: [], true);
+                $usertype = trim($item['usertype']);
+                $userlimit = intval($item['userlimit']);
+                if ($usertype == 'replace' && empty($userids)) {
+                    throw new ApiException("状态[{$item['name']}]设置错误，设置流转模式时必须填写状态负责人");
+                }
+                if ($usertype == 'merge' && empty($userids)) {
+                    throw new ApiException("状态[{$item['name']}]设置错误，设置剔除模式时必须填写状态负责人");
+                }
+                if ($userlimit && empty($userids)) {
+                    throw new ApiException("状态[{$item['name']}]设置错误，设置限制负责人时必须填写状态负责人");
+                }
+                $flow = ProjectFlowItem::updateInsert([
+                    'id' => $id,
+                    'project_id' => $this->id,
+                    'flow_id' => $projectFlow->id,
+                ], [
+                    'name' => trim($item['name']),
+                    'status' => trim($item['status']),
+                    'sort' => intval($item['sort']),
+                    'turns' => $turns,
+                    'userids' => $userids,
+                    'usertype' => trim($item['usertype']),
+                    'userlimit' => $userlimit,
+                ], [], $isInsert);
+                if ($flow) {
+                    $ids[] = $flow->id;
+                    if ($flow->id != $id) {
+                        $idc[$id] = $flow->id;
+                    }
+                    if ($flow->status == 'start') {
+                        $hasStart = true;
+                    }
+                    if ($flow->status == 'end') {
+                        $hasEnd = true;
+                    }
+                    if (!$isInsert) {
+                        $upTaskList[$flow->id] = $flow->status . "|" . $flow->name;
+                    }
+                }
+            }
+            if (!$hasStart) {
+                throw new ApiException('至少需要1个开始状态');
+            }
+            if (!$hasEnd) {
+                throw new ApiException('至少需要1个结束状态');
+            }
+            ProjectFlowItem::whereFlowId($projectFlow->id)->whereNotIn('id', $ids)->chunk(100, function($list) {
+                foreach ($list as $item) {
+                    $item->deleteFlowItem();
+                }
+            });
+            //
+            foreach ($upTaskList as $id => $value) {
+                ProjectTask::whereFlowItemId($id)->update([
+                    'flow_item_name' => $value
+                ]);
+            }
+            //
+            $projectFlow = ProjectFlow::with(['projectFlowItem'])->whereProjectId($this->id)->find($projectFlow->id);
+            $itemIds = $projectFlow->projectFlowItem->pluck('id')->toArray();
+            foreach ($projectFlow->projectFlowItem as $item) {
+                $turns = $item->turns;
+                foreach ($idc as $oid => $nid) {
+                    if (in_array($oid, $turns)) {
+                        $turns = array_diff($turns, [$oid]);
+                        $turns[] = $nid;
+                    }
+                }
+                if (!in_array($item->id, $turns)) {
+                    $turns[] = $item->id;
+                }
+                $turns = array_values(array_filter(array_unique(array_intersect($turns, $itemIds))));
+                sort($turns);
+                $item->turns = $turns;
+                ProjectFlowItem::whereId($item->id)->update([ 'turns' => Base::array2json($turns) ]);
+            }
+            return $projectFlow;
+        });
+    }
+
+    /**
+     * 获取项目信息（用于判断会员是否存在项目内）
      * @param int $project_id
-     * @param bool $ignoreArchived 排除已归档
+     * @param null|bool $archived true:仅限未归档, false:仅限已归档, null:不限制
+     * @param null|bool $mustOwner true:仅限项目负责人, false:仅限非项目负责人, null:不限制
      * @return self
      */
-    public static function userProject($project_id, $ignoreArchived = true)
+    public static function userProject($project_id, $archived = true, $mustOwner = null)
     {
-        $project = self::select(self::projectSelect)->authData()->where('projects.id', intval($project_id))->first();
+        $project = self::authData()->where('projects.id', intval($project_id))->first();
         if (empty($project)) {
             throw new ApiException('项目不存在或不在成员列表内', [ 'project_id' => $project_id ], -4001);
         }
-        if ($ignoreArchived && $project->archived_at != null) {
+        if ($archived === true && $project->archived_at != null) {
             throw new ApiException('项目已归档', [ 'project_id' => $project_id ], -4001);
+        }
+        if ($archived === false && $project->archived_at == null) {
+            throw new ApiException('项目未归档', [ 'project_id' => $project_id ]);
+        }
+        if ($mustOwner === true && !$project->owner) {
+            throw new ApiException('仅限项目负责人操作', [ 'project_id' => $project_id ]);
+        }
+        if ($mustOwner === false && $project->owner) {
+            throw new ApiException('禁止项目负责人操作', [ 'project_id' => $project_id ]);
         }
         return $project;
     }

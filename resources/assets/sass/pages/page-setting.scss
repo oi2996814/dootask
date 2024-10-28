@@ -38,16 +38,30 @@
                 padding: 12px 0 0 32px;
                 > li {
                     cursor: pointer;
-                    color: #6C7D8C;
+                    color: #6b6e72;
                     list-style: none;
                     line-height: 42px;
                     padding: 0 20px;
                     margin: 5px 0;
                     position: relative;
+                    display: flex;
+                    align-items: center;
+
+                    .ivu-badge {
+                        transform: scale(0.8);
+                        transform-origin: right center;
+                    }
 
                     &.active,
                     &:hover {
                         background-color: #F4F5F7;
+                    }
+
+                    &.version {
+                        cursor: default;
+                        &:hover {
+                            background-color: transparent;
+                        }
                     }
 
                     &.divided {
@@ -106,10 +120,8 @@
         .ivu-form {
             overflow: auto;
         }
-        .form-tip {
-            color: #999999;
-        }
-        .setting-color {
+        .setting-color,
+        .setting-template {
             min-width: 400px;
             max-width: 600px;
             margin-bottom: 12px;
@@ -124,7 +136,6 @@
                     width: 60px;
                     flex: auto;
                     flex-shrink: 0;
-                    max-width: 60px;
                 }
                 .ivu-color-picker {
                     width: 100%;
@@ -134,6 +145,17 @@
                 color: #999999;
             }
         }
+        .setting-template {
+            > div {
+                flex-shrink: 0;
+                text-align: left;
+                &:last-child {
+                    flex: 1;
+                    width: auto;
+                    max-width: none;
+                }
+            }
+        }
         .setting-footer {
             > button {
                 height: 34px;
@@ -141,18 +163,86 @@
                 min-width: 94px;
             }
         }
+        .setting-auto-day {
+            display: block;
+            width: 110px;
+            margin-top: 12px;
+            line-height: 32px;
+            margin-bottom: -10px;
+        }
         &.submit {
             position: absolute;
             top: 0;
             left: 0;
             right: 0;
             bottom: 0;
+            display: flex;
+            flex-direction: column;
+            padding: 0 !important;
+            .ivu-form {
+                flex: 1;
+                padding: 24px 40px;
+                overflow: auto;
+            }
+            .ivu-tabs {
+                flex: 1;
+                padding: 16px 32px 0;
+                display: flex;
+                flex-direction: column;
+                .ivu-tabs-content {
+                    flex: 1;
+                    height: 0;
+                    .ivu-tabs-tabpane {
+                        position: relative;
+                        .setting-component-item {
+                            position: absolute;
+                            top: 0;
+                            left: 0;
+                            right: 0;
+                            bottom: 0;
+                            flex: 1;
+                            display: flex;
+                            flex-direction: column;
+                            .ivu-form {
+                                padding: 8px 12px;
+                            }
+                            .setting-footer {
+                                margin: 0 -32px;
+                            }
+                            .email-setting-box {
+                                position: relative;
+                                padding: 36px 24px 4px;
+                                margin: 24px 0 12px;
+                                border-radius: 8px;
+                                border: 1px solid #eeeeee;
+                                transition: box-shadow 0.3s;
+                                &:hover {
+                                    box-shadow: 0 0 10px #e6ecfa;
+                                }
+                                h3 {
+                                    position: absolute;
+                                    top: 0;
+                                    left: 24px;
+                                    padding: 4px 10px;
+                                    border-radius: 4px;
+                                    display: inline-block;
+                                    background-color: #ffffff;
+                                    border: 1px solid #eeeeee;
+                                    font-size: 15px;
+                                    font-weight: 500;
+                                    transform: translateY(-50%);
+                                }
+                            }
+                            .email-setting-placeholder {
+                                height: 8px;
+                            }
+                        }
+                    }
+                }
+            }
             .setting-footer {
-                position: absolute;
-                left: 0;
-                right: 0;
-                bottom: 0;
-                z-index: 1;
+                flex-shrink: 0;
+                position: static;
                 padding: 16px 24px 0;
                 border-top: 1px solid #F4F4F5;
             }

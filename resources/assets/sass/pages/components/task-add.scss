@@ -1,36 +1,103 @@
 .task-add {
+    .head {
+        display: flex;
+        align-items: center;
+        padding: 8px 0;
+        margin-bottom: 20px;
+        position: relative;
+        .ivu-cascader {
+            .ivu-cascader-label {
+                width: auto;
+                padding: 0;
+                font-size: 15px;
+                display: flex;
+                align-items: center;
+                &:after {
+                    transition: all 0.2s;
+                    padding: 6px;
+                    font-family: Ionicons, serif;
+                    content: "\f116";
+                    opacity: 1;
+                }
+            }
+            .ivu-cascader-arrow {
+                display: none;
+            }
+            .ivu-input {
+                padding: 4px 0;
+                border: 0;
+                box-shadow: none;
+                font-size: 15px;
+            }
+            .ivu-cascader-not-found-tip {
+                padding: 6px 12px;
+            }
+        }
+        &.empty {
+            .ivu-cascader {
+                .ivu-cascader-label {
+                    &:after {
+                        opacity: 0;
+                    }
+                }
+            }
+        }
+        &.visible {
+            .ivu-cascader {
+                .ivu-cascader-label {
+                    &:after {
+                        transform: rotate(180deg);
+                    }
+                }
+            }
+        }
+    }
     .task-add-form,
     .task-add-advanced {
-        margin: 0 0 -18px;
-        .ivu-form-item-label {
-            font-weight: 600;
+        .title {
+            .ivu-input {
+                font-weight: 500;
+                font-size: 24px;
+                padding: 4px 0;
+                line-height: 1.4;
+                resize: none;
+                border-color: transparent;
+                &:focus {
+                    box-shadow: none
+                }
+            }
         }
-        .teditor-box {
-            .tox-tinymce {
-                border-color: #e8e8e8;
+        .desc {
+            margin-top: 24px;
+            overflow: auto;
+            div[contenteditable="true"] {
+                outline: none
             }
-            .tox .tox-statusbar,
-            .tox .tox-menubar+.tox-toolbar,
-            .tox .tox-menubar+.tox-toolbar-overlord .tox-toolbar__primary,
-            .tox:not([dir=rtl]) .tox-toolbar__group:not(:last-of-type) {
-                border-color: #e8e8e8;
-            }
-            .tox .tox-toolbar,
-            .tox .tox-toolbar__overflow,
-            .tox .tox-toolbar__primary {
-                background-image: none;
-                border-bottom: 1px solid #e8e8e8;
+            .mce-content-body {
+                img {
+                    max-width: 100%;
+                }
+                pre {
+                    padding: 14px;
+                    margin: 7px 0;
+                    overflow: auto;
+                    background: #f5f2f0;
+                    border-radius: 5px;
+                }
+                &[data-mce-placeholder]:not(.mce-visualblocks)::before {
+                    color: #bbbbbb;
+                }
             }
         }
         .advanced-option {
-            margin-top: -6px;
+            margin-top: 42px;
             z-index: 1;
             display: flex;
             align-items: center;
             > button {
                 transition: margin 0.2s;
                 &.advanced {
-                    margin-left: 22px;
+                    margin-left: 24px;
                 }
                 &:focus {
                     box-shadow: none;
@@ -50,11 +117,40 @@
                     }
                 }
             }
+            .advanced-time {
+                display: flex;
+                align-items: center;
+                margin-left: 20px;
+                position: relative;
+                cursor: pointer;
+                .ivu-icon {
+                    font-size: 32px;
+                }
+                > em {
+                    position: absolute;
+                    top: -5px;
+                    left: 16px;
+                    font-family: "Monospaced Number", "serif";
+                    transform: scale(0.8);
+                    height: 20px;
+                    min-width: 20px;
+                    line-height: 20px;
+                    border-radius: 10px;
+                    background: #8bcf70;
+                    color: #fff;
+                    text-align: center;
+                    padding: 0 6px;
+                    font-size: 12px;
+                    font-style: normal;
+                    white-space: nowrap;
+                    box-shadow: 0 0 0 1px #fff;
+                }
+            }
         }
     }
     .task-add-advanced {
-        margin: 1px 0 0;
-        padding: 34px 32px 6px;
+        margin: -16px 0 0;
+        padding: 46px 32px 6px;
         border-radius: 8px;
         border: 1px solid #e8e8e8;
         .subtasks {
@@ -90,15 +186,17 @@
             width: 100%;
         }
     }
-}
-.task-add-advanced-transfer {
-    .task-drop-prepend {
-        text-align: center;
-        color: #c5c8ce;
-        line-height: 20px;
-        padding-bottom: 5px;
-        font-size: 12px;
-        border-bottom: 1px solid #f1f1f1;
-        margin-bottom: 5px;
+    .task-add-assist {
+        margin-top: 6px;
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        .ivu-icon {
+            font-size: 16px;
+            color: #999999;
+        }
+    }
+    .ivu-modal-footer {
+        padding: 26px 0 22px !important;
     }
 }

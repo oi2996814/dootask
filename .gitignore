@@ -14,12 +14,12 @@
 .vscode
 .vagrant
 .phpunit.result.cache
+CHANGELOG.md
 Homestead.json
 Homestead.yaml
 npm-debug.log
 yarn-error.log
 test.*
-composer.lock
 package-lock.json
 laravels-timer-process.pid
 .DS_Store

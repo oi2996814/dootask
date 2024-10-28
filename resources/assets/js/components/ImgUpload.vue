@@ -44,10 +44,11 @@
                 </div>
             </div>
         </div>
-        <Modal :title="$L('浏览图片空间的图片')" v-model="browseVisible" class="img-upload-modal" width="710">
+        <Modal :title="$L('浏览图片空间')" v-model="browseVisible" class="img-upload-modal" width="710">
             <div class="browse-load" v-if="isLoading">{{$L('加载中...')}}</div>
             <div class="browse-list" :class="httpType==='input'?'browse-list-disabled':''" ref="browselistbox">
-                <div class="browse-item" v-for="item in browseList" @click="browseItem(item)">
+                <div v-if="browseList.length <= 0">{{$L('无内容')}}</div>
+                <div v-else class="browse-item" v-for="item in browseList" @click="browseItem(item)">
                     <Icon v-if="item.active" class="browse-icon" type="ios-checkmark-circle"></Icon>
                     <div class="browse-img" v-bind:style="{ 'background-image': 'url(' + item.thumb + ')' }"></div>
                     <div class="browse-title">{{item.title}}</div>
@@ -108,7 +109,7 @@
         },
         data () {
             return {
-                actionUrl: this.$store.state.method.apiUrl('system/imgupload'),
+                actionUrl: $A.apiUrl('system/imgupload'),
                 params: {
                     width: this.width,
                     height: this.height
@@ -169,7 +170,7 @@
 
             uploadHeaders() {
                 return {
-                    fd: this.$store.state.method.getStorageString("userWsFd"),
+                    fd: $A.getStorageString("userWsFd"),
                     token: this.userToken,
                 }
             },
@@ -224,9 +225,12 @@
                 this.$refs.upload.fileList.splice(fileList.indexOf(item), 1);
                 this.$emit('input', this.$refs.upload.fileList);
             },
-            handleProgress() {
+            handleProgress(event, file) {
                 //开始上传
-                this.$emit('update:uploadIng', this.uploadIng + 1);
+                if (file._uploadIng === undefined) {
+                    file._uploadIng = true;
+                    this.$emit('update:uploadIng', this.uploadIng + 1);
+                }
             },
             handleSuccess (res, file) {
                 //上传完成

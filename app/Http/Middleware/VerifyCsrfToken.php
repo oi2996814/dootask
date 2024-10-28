@@ -21,14 +21,20 @@ class VerifyCsrfToken extends Middleware
         // 保存任务优先级
         'api/system/priority/',
 
+        // 保存创建项目列表模板
+        'api/system/column/template/',
+
         // 添加任务
         'api/project/task/add/',
+
+        // 保存工作流
+        'api/project/flow/save/',
 
         // 修改任务
         'api/project/task/update/',
 
-        // 上传任务问题
-        'api/project/task/upload/',
+        // 聊天发文本
+        'api/dialog/msg/sendtext/',
 
         // 聊天发文件
         'api/dialog/msg/sendfile/',
@@ -41,5 +47,11 @@ class VerifyCsrfToken extends Middleware
 
         // 保存文件内容（上传）
         'api/file/content/upload/',
+
+        // 保存汇报
+        'api/report/store/',
+
+        // 发布桌面端
+        'desktop/publish/',
     ];
 }

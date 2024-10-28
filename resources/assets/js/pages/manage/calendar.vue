@@ -28,12 +28,16 @@
                 :month="calendarMonth"
                 :theme="calendarTheme"
                 :template="calendarTemplate"
-                :calendars="calendarList"
                 :schedules="list"
+                :taskView="false"
+                :useCreationPopup="false"
                 @beforeCreateSchedule="onBeforeCreateSchedule"
                 @beforeClickSchedule="onBeforeClickSchedule"
                 @beforeUpdateSchedule="onBeforeUpdateSchedule"
                 disable-click/>
+        </div>
+        <div class="calendar-menu" :style="calendarMenuStyles">
+            <TaskMenu ref="calendarTaskMenu" :task="calendarTask" updateBefore/>
         </div>
     </div>
 </template>
@@ -43,12 +47,14 @@ import 'tui-date-picker/dist/tui-date-picker.css';
 import 'tui-time-picker/dist/tui-time-picker.css';
 import 'tui-calendar-hi/dist/tui-calendar-hi.css'
 
-import {mapState} from "vuex";
+import {mapState, mapGetters} from "vuex";
 import Calendar from "./components/Calendar";
 import moment from "moment";
+import {Store} from "le5le-store";
+import TaskMenu from "./components/TaskMenu";
 
 export default {
-    components: {Calendar},
+    components: {TaskMenu, Calendar},
     data() {
         return {
             lists: [],
@@ -61,9 +67,14 @@ export default {
             calendarMonth: {},
             calendarTheme: {},
             calendarTemplate: {},
-            calendarList: [],
+            calendarTask: {},
+            calendarMenuStyles: {
+                top: 0,
+                left: 0
+            },
 
             loadIng: 0,
+            loadTimeout: null,
         }
     },
 
@@ -72,45 +83,86 @@ export default {
         this.setRenderRange();
     },
 
+    deactivated() {
+        this.$store.dispatch("forgetTaskCompleteTemp", true);
+    },
+
     computed: {
-        ...mapState(['userId', 'projects', 'tasks']),
+        ...mapState(['userId', 'cacheTasks', 'taskCompleteTemps', 'wsOpenNum', 'themeIsDark']),
+
+        ...mapGetters(['transforTasks']),
 
         list() {
-            let datas = $A.cloneJSON(this.tasks);
-            datas = datas.filter((data) => {
-                if (data.complete_at) {
+            const {cacheTasks, taskCompleteTemps} = this;
+            const filterTask = (task, chackCompleted = true) => {
+                if (task.archived_at) {
                     return false;
                 }
-                if (!data.end_at) {
+                if (task.complete_at && chackCompleted === true) {
                     return false;
                 }
-                return data.owner;
-            })
-            return datas.map(data => {
-                let task = {
+                if (!task.end_at) {
+                    return false;
+                }
+                return task.owner;
+            }
+            let array = cacheTasks.filter(task => filterTask(task));
+            if (taskCompleteTemps.length > 0) {
+                let tmps = cacheTasks.filter(task => taskCompleteTemps.includes(task.id) && filterTask(task, false));
+                if (tmps.length > 0) {
+                    array = $A.cloneJSON(array)
+                    array.push(...tmps);
+                }
+            }
+            return this.transforTasks(array).map(data => {
+                const isAllday = $A.rightExists(data.start_at, "00:00:00") && $A.rightExists(data.end_at, "23:59:59")
+                const task = {
                     id: data.id,
                     calendarId: String(data.project_id),
                     title: data.name,
                     body: data.desc,
-                    category: 'allday',
+                    isAllDay: isAllday,
+                    category: isAllday ? 'allday' : 'time',
                     start: $A.Date(data.start_at).toISOString(),
                     end: $A.Date(data.end_at).toISOString(),
                     color: "#515a6e",
                     bgColor: data.color || '#E3EAFD',
                     borderColor: data.p_color,
-                    complete_at: data.complete_at,
                     priority: '',
                     preventClick: true,
-                    isChecked: false,
+                    preventCheckHide: true,
+                    isChecked: !!data.complete_at,
+                    //
+                    complete_at: data.complete_at,
+                    start_at: data.start_at,
+                    end_at: data.end_at,
+                    _time: data._time,
                 };
                 if (data.p_name) {
-                    task.priority = '<span class="priority" style="background-color:' + data.p_color + '">' + data.p_name + '</span>';
+                    let priorityStyle = `background-color:${data.p_color}`;
+                    if (this.themeIsDark) {
+                        priorityStyle = `color:${data.p_color};border:1px solid ${data.p_color};padding:1px 3px;`;
+                    }
+                    task.priority = `<span class="priority" style="${priorityStyle}">${data.p_name}</span>`;
                 }
-                if (data.overdue) {
-                    task.title = '[' + $A.L('超期') + '] ' + task.title
+                if (data.sub_my && data.sub_my.length > 0) {
+                    task.title = `[+${data.sub_my.length}] ${task.title}`
+                }
+                if (data.sub_top === true) {
+                    task.title = `[${this.$L('子任务')}] ${task.title}`
+                }
+                if (data.flow_item_name) {
+                    task.title = `[${data.flow_item_name}] ${task.title}`
+                }
+                if (data.complete_at) {
+                    task.color = "#c3c2c2"
+                    task.bgColor = "#f3f3f3"
+                    task.borderColor = "#e3e3e3"
+                } else if (data.overdue) {
+                    task.title = `[${this.$L('超期')}] ${task.title}`
                     task.color = "#f56c6c"
-                    task.bgColor = "#fef0f0"
-                    task.priority+= '<span class="overdue">' + $A.L('超期未完成') + '</span>';
+                    task.bgColor = data.color || "#fef0f0"
+                    task.priority+= `<span class="overdue">${this.$L('超期未完成')}</span>`;
                 }
                 if (!task.borderColor) {
                     task.borderColor = task.bgColor;
@@ -125,20 +177,15 @@ export default {
             this.getTask(time);
         },
 
-        projects: {
-            handler(data) {
-                const list = data.map((project) => {
-                    return {
-                        id: String(project.id),
-                        name: project.name,
-                    }
-                });
-                if (JSON.stringify(list) != JSON.stringify(this.calendarList)) {
-                    this.calendarList = list;
+        wsOpenNum(num) {
+            if (num <= 1) return
+            this.wsOpenTimeout && clearTimeout(this.wsOpenTimeout)
+            this.wsOpenTimeout = setTimeout(() => {
+                if (this.$route.name == 'manage-calendar') {
+                    this.setRenderRange();
                 }
-            },
-            immediate: true,
-        },
+            }, 5000)
+        }
     },
 
     methods: {
@@ -187,19 +234,40 @@ export default {
 
         getTask(time) {
             if (this.loadIng > 0) {
-                setTimeout(() => {
+                clearTimeout(this.loadTimeout)
+                this.loadTimeout = setTimeout(() => {
                     this.getTask(time)
                 }, 100)
                 return;
             }
+            //
+            const timeStart = $A.Date($A.formatDate(time[0] + " 00:00:00")),
+                timeEnd = $A.Date($A.formatDate(time[1] + " 23:59:59")),
+                now = $A.Time();
+            const find = (item, n) => {
+                if (n === true && item._time < now) {
+                    return false
+                }
+                const start = $A.Date(item.start_at),
+                    end = $A.Date(item.end_at);
+                return (start <= timeStart && timeStart <= end) || (start <= timeEnd && timeEnd <= end) || (start > timeStart && timeEnd > end);
+            }
+            const currentIds = this.list.filter(item => find(item)).map(({id}) => id);
+            const call = () => {
+                const newIds = this.list.filter(item => find(item, true)).map(({id}) => id);
+                this.$store.dispatch("forgetTask", currentIds.filter(v => newIds.indexOf(v) == -1))
+            }
+            //
             this.loadIng++;
             this.$store.dispatch("getTasks", {
-                time: time,
+                time,
                 complete: "no"
             }).then(() => {
                 this.loadIng--;
+                call()
             }).catch(() => {
                 this.loadIng--;
+                call()
             })
         },
 
@@ -250,40 +318,41 @@ export default {
             return currentDate.format(format);
         },
 
-        onBeforeCreateSchedule(res) {
-            this.$store.dispatch("taskAdd", {
-                project_id: res.calendarId,
-                times: [res.start.toDate(), res.end.toDate()],
-                name: res.title,
-                owner: this.userId,
-            }).then(({msg}) => {
-                $A.messageSuccess(msg);
-            }).catch(({msg}) => {
-                $A.modalError(msg);
+        onBeforeCreateSchedule({start, end, isAllDay, guide}) {
+            if (isAllDay || this.calendarView == 'month') {
+                start = $A.date2string(start.toDate(), "Y-m-d 00:00:00")
+                end = $A.date2string(end.toDate(), "Y-m-d 23:59:59")
+            } else {
+                start = $A.date2string(start.toDate(), "Y-m-d H:i:s")
+                end = $A.date2string(end.toDate(), "Y-m-d H:i:s")
+            }
+            Store.set('addTask', {
+                times: [start, end],
+                owner: [this.userId],
+                beforeClose: () => {
+                    guide.clearGuideElement();
+                }
             });
         },
 
-        onBeforeClickSchedule({type, schedule}) {
-            let data = this.tasks.find(({id}) => id === schedule.id);
+        onBeforeClickSchedule(event) {
+            const {type, schedule} = event;
+            let data = this.cacheTasks.find(({id}) => id === schedule.id);
             if (!data) {
                 return;
             }
             switch (type) {
                 case "check":
-                    this.$set(data, 'complete_at', $A.formatDate("Y-m-d H:i:s"))
-                    this.$store.dispatch("taskUpdate", {
-                        task_id: data.id,
-                        complete_at: $A.formatDate("Y-m-d H:i:s"),
-                    }).then(({msg}) => {
-                        $A.messageSuccess(msg);
-                    }).catch(({msg}) => {
-                        this.$set(data, 'complete_at', null)
-                        $A.modalError(msg);
-                    });
+                    this.calendarMenuStyles = {
+                        left: `${this.getElementLeft(event.target)}px`,
+                        top: `${this.getElementTop(event.target) - 8}px`
+                    }
+                    this.calendarTask = data;
+                    this.$nextTick(this.$refs.calendarTaskMenu.show);
                     break;
 
                 case "edit":
-                    this.$store.dispatch("openTask", data.id)
+                    this.$store.dispatch("openTask", data)
                     break;
 
                 case "delete":
@@ -292,7 +361,7 @@ export default {
                         content: '你确定要删除任务【' + data.name + '】吗？',
                         loading: true,
                         onOk: () => {
-                            this.$store.dispatch("removeTask", data.id).then(({msg}) => {
+                            this.$store.dispatch("removeTask", {task_id: data.id}).then(({msg}) => {
                                 $A.messageSuccess(msg);
                                 this.$Modal.remove();
                             }).catch(({msg}) => {
@@ -308,7 +377,7 @@ export default {
 
         onBeforeUpdateSchedule(res) {
             const {changes, schedule} = res;
-            let data = this.tasks.find(({id}) => id === schedule.id);
+            let data = this.cacheTasks.find(({id}) => id === schedule.id);
             if (!data) {
                 return;
             }
@@ -326,8 +395,31 @@ export default {
                     $A.messageSuccess(msg);
                 }).catch(({msg}) => {
                     $A.modalError(msg);
+                    this.setRenderRange();
                 });
             }
+        },
+
+        getElementLeft(element) {
+            let actualLeft = element.offsetLeft;
+            let current = element.offsetParent;
+            while (current !== null) {
+                if (current == this.$el) break;
+                actualLeft += (current.offsetLeft + current.clientLeft);
+                current = current.offsetParent;
+            }
+            return actualLeft;
+        },
+
+        getElementTop(element) {
+            let actualTop = element.offsetTop;
+            let current = element.offsetParent;
+            while (current !== null) {
+                if (current == this.$el) break;
+                actualTop += (current.offsetTop + current.clientTop);
+                current = current.offsetParent;
+            }
+            return actualTop;
         }
     }
 }

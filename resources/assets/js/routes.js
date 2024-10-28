@@ -51,12 +51,12 @@ export default [
                         path: 'system',
                         component: () => import('./pages/manage/setting/system.vue'),
                     },
-                    {
-                        name: 'manage-setting-priority',
-                        path: 'priority',
-                        component: () => import('./pages/manage/setting/priority.vue'),
-                    },
                 ]
+            },
+            {
+                name: 'manage-project-invite',
+                path: 'project/invite',
+                component: () => import('./pages/manage/projectInvite.vue'),
             },
             {
                 name: 'manage-project',
@@ -68,17 +68,43 @@ export default [
                 path: 'file',
                 component: () => import('./pages/manage/file.vue'),
             },
-            {
-                name: 'manage-download',
-                path: 'download',
-                component: () => import('./pages/download.vue'),
-            },
         ]
     },
     {
-        name: 'download',
-        path: '/download',
-        component: () => import('./pages/download.vue'),
+        name: 'single-file-msg',
+        path: '/single/file/msg/:id',
+        component: () => import('./pages/single/fileMsg.vue'),
+    },
+    {
+        name: 'single-file-task',
+        path: '/single/file/task/:id',
+        component: () => import('./pages/single/fileTask.vue'),
+    },
+    {
+        name: 'single-file',
+        path: '/single/file/:id',
+        component: () => import('./pages/single/file.vue'),
+    },
+    {
+        name: 'single-task',
+        path: '/single/task/:id',
+        component: () => import('./pages/single/task.vue'),
+    },
+    {
+        name: 'valid-email',
+        path: '/single/valid/email',
+        meta: {title: '验证绑定邮箱'},
+        component: () => import('./pages/single/validEmail.vue')
+    },
+    {
+        name: 'report-edit',
+        path: '/single/report/edit/:id',
+        component: () => import('./pages/single/reportEdit.vue')
+    },
+    {
+        name: 'report-detail',
+        path: '/single/report/detail/:id',
+        component: () => import('./pages/single/reportDetail.vue')
     },
     {
         name: 'login',

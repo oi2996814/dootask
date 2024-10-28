@@ -1,5 +1,5 @@
 <template>
-    <div class="file-content">
+    <div v-if="ready" class="file-content">
         <iframe v-if="isPreview" ref="myPreview" class="preview-iframe" :src="previewUrl"></iframe>
         <template v-else>
             <div v-show="!['word', 'excel', 'ppt'].includes(file.type)" class="edit-header">
@@ -8,8 +8,8 @@
                         <div class="task-detail-delete-file-popover">
                             <p>{{$L('未保存当前修改内容？')}}</p>
                             <div class="buttons">
-                                <Button size="small" type="text" @click="unsaveGive">{{$L('放弃')}}</Button>
-                                <Button size="small" type="primary" @click="unsaveSave">{{$L('保存')}}</Button>
+                                <Button size="small" type="text" @click="unSaveGive">{{$L('放弃')}}</Button>
+                                <Button size="small" type="primary" @click="onSaveSave">{{$L('保存')}}</Button>
                             </div>
                         </div>
                         <span slot="reference">[{{$L('未保存')}}*]</span>
@@ -33,18 +33,12 @@
                 <div v-if="file.type=='mind'" class="header-hint">
                     {{$L('选中节点，按enter键添加同级节点，tab键添加子节点')}}
                 </div>
-                <Dropdown v-if="file.type=='mind' || file.type=='flow' || file.type=='sheet'"
+                <Dropdown v-if="file.type=='mind'"
                           trigger="click"
                           class="header-hint"
                           @on-click="exportMenu">
                     <a href="javascript:void(0)">{{$L('导出')}}<Icon type="ios-arrow-down"></Icon></a>
-                    <DropdownMenu v-if="file.type=='sheet'" slot="list">
-                        <DropdownItem name="xlsx">{{$L('导出XLSX')}}</DropdownItem>
-                        <DropdownItem name="xlml">{{$L('导出XLS')}}</DropdownItem>
-                        <DropdownItem name="csv">{{$L('导出CSV')}}</DropdownItem>
-                        <DropdownItem name="txt">{{$L('导出TXT')}}</DropdownItem>
-                    </DropdownMenu>
-                    <DropdownMenu v-else slot="list">
+                    <DropdownMenu slot="list">
                         <DropdownItem name="png">{{$L('导出PNG图片')}}</DropdownItem>
                         <DropdownItem name="pdf">{{$L('导出PDF文件')}}</DropdownItem>
                     </DropdownMenu>
@@ -56,46 +50,48 @@
                     <MDEditor v-if="contentDetail.type=='md'" v-model="contentDetail.content" height="100%"/>
                     <TEditor v-else v-model="contentDetail.content" height="100%" @editorSave="handleClick('saveBefore')"/>
                 </template>
-                <Flow v-else-if="file.type=='flow'" ref="myFlow" v-model="contentDetail" @saveData="handleClick('saveBefore')"/>
+                <Drawio v-else-if="file.type=='drawio'" ref="myFlow" v-model="contentDetail" :title="file.name" @saveData="handleClick('saveBefore')"/>
                 <Minder v-else-if="file.type=='mind'" ref="myMind" v-model="contentDetail" @saveData="handleClick('saveBefore')"/>
-                <LuckySheet v-else-if="file.type=='sheet'" ref="mySheet" v-model="contentDetail"/>
-                <OnlyOffice v-else-if="['word', 'excel', 'ppt'].includes(file.type)" v-model="contentDetail"/>
+                <AceEditor v-else-if="['code', 'txt'].includes(file.type)" v-model="contentDetail" :ext="file.ext" @saveData="handleClick('saveBefore')"/>
+                <OnlyOffice v-else-if="['word', 'excel', 'ppt'].includes(file.type)" v-model="contentDetail" :documentKey="documentKey"/>
             </div>
         </template>
-        <div v-if="loadContent > 0 || previewLoad" class="content-load"><Loading/></div>
+        <div v-if="contentLoad" class="content-load"><Loading/></div>
     </div>
 </template>
 
 <script>
 import Vue from 'vue'
-import Minder from '../../../components/minder'
+import Minder from '../../../components/Minder'
 import {mapState} from "vuex";
 Vue.use(Minder)
 
 const MDEditor = () => import('../../../components/MDEditor/index');
 const TEditor = () => import('../../../components/TEditor');
-const LuckySheet = () => import('../../../components/LuckySheet');
-const Flow = () => import('../../../components/flow');
+const AceEditor = () => import('../../../components/AceEditor');
 const OnlyOffice = () => import('../../../components/OnlyOffice');
+const Drawio = () => import('../../../components/Drawio');
 
 export default {
     name: "FileContent",
-    components: {TEditor, MDEditor, LuckySheet, Flow, OnlyOffice},
+    components: {AceEditor, TEditor, MDEditor, OnlyOffice, Drawio},
     props: {
+        value: {
+            type: Boolean,
+            default: false
+        },
         file: {
             type: Object,
             default: () => {
                 return {};
             }
         },
-        parentShow: {
-            type: Boolean,
-            default: true
-        },
     },
 
     data() {
         return {
+            ready: false,
+
             loadContent: 0,
             loadIng: 0,
 
@@ -113,9 +109,29 @@ export default {
     },
 
     mounted() {
+        document.addEventListener('keydown', this.keySave)
         window.addEventListener('message', this.handleMessage)
+        //
+        if (this.$isSubElectron) {
+            window.__onBeforeUnload = () => {
+                if (!this.equalContent) {
+                    $A.modalConfirm({
+                        content: '修改的内容尚未保存，真的要放弃修改吗？',
+                        cancelText: '取消',
+                        okText: '放弃',
+                        onOk: () => {
+                            this.$Electron.sendMessage('windowDestroy');
+                        }
+                    });
+                    return true
+                }
+            }
+            this.$store.dispatch("websocketConnection")
+        }
     },
+
     beforeDestroy() {
+        document.removeEventListener('keydown', this.keySave)
         window.removeEventListener('message', this.handleMessage)
     },
 
@@ -132,6 +148,18 @@ export default {
             deep: true,
         },
 
+        value: {
+            handler(val) {
+                if (val) {
+                    this.ready = true;
+                    this.editUser = [this.userId];
+                } else {
+                    this.fileContent[this.fileId] = this.contentDetail;
+                }
+            },
+            immediate: true,
+        },
+
         wsMsg: {
             handler(info) {
                 const {type, data} = info;
@@ -144,7 +172,7 @@ export default {
 
                     case 'file':
                         if (data.action == 'content') {
-                            if (this.parentShow && data.id == this.fileId) {
+                            if (this.value && data.id == this.fileId) {
                                 $A.modalConfirm({
                                     title: "更新提示",
                                     content: '团队成员（' + info.nickname + '）更新了内容，<br/>更新时间：' + $A.formatDate("Y-m-d H:i:s", info.time) + '。<br/><br/>点击【确定】加载最新内容。',
@@ -160,23 +188,22 @@ export default {
             deep: true,
         },
 
-        parentShow: {
-            handler(val) {
-                if (!val) {
-                    this.fileContent[this.fileId] = this.contentDetail;
-                } else {
-                    this.editUser = [this.userId];
-                }
-            },
-            immediate: true,
+        wsOpenNum() {
+            if (this.$isSubElectron) {
+                this.$store.dispatch("websocketPath", "file/content/" + this.fileId);
+            }
         },
     },
 
     computed: {
-        ...mapState(['fileContent', 'wsMsg', 'userId']),
+        ...mapState(['fileContent', 'wsMsg', 'userId', 'wsOpenNum']),
 
         equalContent() {
             return this.contentBak == $A.jsonStringify(this.contentDetail);
+        },
+
+        contentLoad() {
+            return this.loadContent > 0 || this.previewLoad;
         },
 
         isPreview() {
@@ -189,7 +216,7 @@ export default {
 
         previewUrl() {
             if (this.isPreview) {
-                return this.$store.state.method.apiUrl("../fileview/onlinePreview?url=" + encodeURIComponent(this.contentDetail.url))
+                return $A.apiUrl("../fileview/onlinePreview?url=" + encodeURIComponent(this.contentDetail.url))
             } else {
                 return '';
             }
@@ -206,13 +233,24 @@ export default {
             }
         },
 
+        keySave(e) {
+            if (this.value && e.keyCode === 83) {
+                if (e.metaKey || e.ctrlKey) {
+                    e.preventDefault();
+                    this.onSaveSave();
+                }
+            }
+        },
+
         getContent() {
             if (!this.fileId) {
                 this.contentDetail = {};
+                this.updateBak();
                 return;
             }
             if (typeof this.fileContent[this.fileId] !== "undefined") {
                 this.contentDetail = this.fileContent[this.fileId];
+                this.updateBak();
                 return;
             }
             if (['word', 'excel', 'ppt'].includes(this.file.type)) {
@@ -287,29 +325,38 @@ export default {
                 case 'mind':
                     this.$refs.myMind.exportHandle(act == 'pdf' ? 1 : 0, this.file.name);
                     break;
-
-                case 'flow':
-                    this.$refs.myFlow[act == 'pdf' ? 'exportPDF' : 'exportPNG'](this.file.name, 3);
-                    break;
-
-                case 'sheet':
-                    this.$refs.mySheet.exportExcel(this.file.name, act);
-                    break;
             }
         },
 
-        unsaveGive() {
+        unSaveGive() {
             delete this.fileContent[this.fileId];
             this.getContent();
             this.unsaveTip = false;
         },
 
-        unsaveSave() {
+        onSaveSave() {
             this.handleClick('save');
             this.unsaveTip = false;
         },
 
-        formatName({name, ext}) {
+        documentKey() {
+            return new Promise(resolve => {
+                this.$store.dispatch("call", {
+                    url: 'file/content',
+                    data: {
+                        id: this.fileId,
+                        only_update_at: 'yes'
+                    },
+                }).then(({data}) => {
+                    resolve($A.Date(data.update_at, true))
+                }).catch(() => {
+                    resolve(0)
+                });
+            })
+        },
+
+        formatName(file) {
+            let {name, ext} = file;
             if (ext != '') {
                 name += "." + ext;
             }

@@ -1,12 +1,12 @@
 <template>
     <div class="page-project">
         <ProjectList/>
-        <ProjectDialog v-if="tablePanel('chat')"/>
+        <ProjectDialog v-if="projectParameter('chat')"/>
     </div>
 </template>
 
 <script>
-import {mapGetters} from "vuex";
+import {mapState, mapGetters} from "vuex";
 import ProjectList from "./components/ProjectList";
 import ProjectDialog from "./components/ProjectDialog";
 export default {
@@ -18,40 +18,63 @@ export default {
     },
 
     mounted() {
-        this.project_id = this.$route.params.id;
+        this.project_id = $A.runNum(this.$route.params.id);
+    },
+
+    deactivated() {
+        this.$store.dispatch("forgetTaskCompleteTemp", true);
     },
 
     computed: {
-        ...mapGetters(['tablePanel']),
+        ...mapState(['cacheProjects', 'wsOpenNum']),
+        ...mapGetters(['projectParameter']),
     },
 
     watch: {
-        '$route' (route) {
-            this.project_id = route.params.id;
+        '$route' ({params}) {
+            this.project_id = $A.runNum(params.id);
         },
-        project_id(id) {
-            if (id > 0) {
-                setTimeout(() => {
-                    this.$store.state.projectId = $A.runNum(id);
-                    this.$store.dispatch("getProjectOne", id).then(() => {
-                        this.$store.dispatch("getColumns", id);
-                        this.$store.dispatch("getTasks", {project_id: id});
-                    }).catch(({msg}) => {
-                        $A.modalWarning({
-                            content: msg,
-                            onOk: () => {
-                                const project = this.$store.state.projects.find(({id}) => id);
-                                if (project) {
-                                    $A.goForward({path: '/manage/project/' + project.id});
-                                } else {
-                                    $A.goForward({path: '/manage/dashboard'});
-                                }
-                            }
-                        });
-                    });
-                });
-            }
+
+        project_id() {
+            this.getProjectData();
+        },
+
+        wsOpenNum(num) {
+            if (num <= 1) return
+            this.wsOpenTimeout && clearTimeout(this.wsOpenTimeout)
+            this.wsOpenTimeout = setTimeout(() => {
+                if (this.$route.name == 'manage-project') {
+                    this.getProjectData();
+                }
+            }, 5000)
         }
     },
+
+    methods: {
+        getProjectData() {
+            let id = this.project_id;
+            if (id <= 0) return;
+            setTimeout(() => {
+                this.$store.state.projectId = $A.runNum(id);
+                this.$store.dispatch("getProjectOne", id).then(() => {
+                    this.$store.dispatch("getColumns", id).catch(() => {});
+                    this.$store.dispatch("getTaskForProject", id).catch(() => {})
+                }).catch(({msg}) => {
+                    $A.modalWarning({
+                        content: msg,
+                        onOk: () => {
+                            const project = this.cacheProjects.find(({id}) => id);
+                            if (project) {
+                                $A.goForward({path: '/manage/project/' + project.id});
+                            } else {
+                                $A.goForward({name: 'manage-dashboard'});
+                            }
+                        }
+                    });
+                });
+                this.$store.dispatch("forgetTaskCompleteTemp", true);
+            });
+        }
+    }
 }
 </script>

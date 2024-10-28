@@ -1,9 +1,8 @@
 <template>
     <div class="teditor-wrapper">
-        <input ref="input" class="teditor-bginput"/>
         <div class="teditor-box" :class="[!inline && spinShow ? 'teditor-loadstyle' : 'teditor-loadedstyle']">
             <template v-if="inline">
-                <div ref="myTextarea" :id="id" v-html="content"></div>
+                <div ref="myTextarea" :id="id" v-html="spinShow ? '' : content"></div>
                 <Icon v-if="spinShow" type="ios-loading" :size="18" class="icon-loading icon-inline"></Icon>
             </template>
             <template v-else>
@@ -77,6 +76,10 @@
             height: {
                 default: 360,
             },
+            minHeight: {
+                type: Number,
+                default: 0,
+            },
             htmlClass: {
                 default: '',
                 type: String
@@ -85,10 +88,10 @@
                 type: Array,
                 default: () => {
                     return [
-                        'advlist autolink lists link image charmap print preview hr anchor pagebreak imagetools',
+                        'advlist autolink lists link image charmap print preview hr anchor pagebreak',
                         'searchreplace visualblocks visualchars code',
-                        'insertdatetime media nonbreaking save table contextmenu directionality',
-                        'emoticons paste textcolor colorpicker imagetools codesample'
+                        'insertdatetime media nonbreaking save table directionality',
+                        'emoticons paste codesample'
                     ];
                 }
             },
@@ -112,11 +115,19 @@
                 type: Boolean,
                 default: false
             },
-            readonly: {
+            readOnly: {
+                type: Boolean,
+                default: false
+            },
+            autoSize: {
                 type: Boolean,
                 default: false
             },
             placeholder: {
+                type: String,
+                default: ''
+            },
+            placeholderFull: {
                 type: String,
                 default: ''
             },
@@ -134,8 +145,8 @@
                 transfer: false,
 
                 uploadIng: 0,
-                uploadFormat: ['jpg', 'jpeg', 'png', 'gif', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'esp', 'pdf', 'rar', 'zip', 'gz'],
-                actionUrl: this.$store.state.method.apiUrl('system/fileupload'),
+                uploadFormat: ['jpg', 'jpeg', 'png', 'gif', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'esp', 'pdf', 'rar', 'zip', 'gz', 'ai', 'avi', 'bmp', 'cdr', 'eps', 'mov', 'mp3', 'mp4', 'pr', 'psd', 'svg', 'tif'],
+                actionUrl: $A.apiUrl('system/fileupload'),
                 maxSize: 10240
             };
         },
@@ -155,11 +166,11 @@
             $A(this.$refs.myTextarea).show();
         },
         computed: {
-            ...mapState(['userToken']),
+            ...mapState(['userToken', 'themeIsDark']),
 
             headers() {
                 return {
-                    fd: this.$store.state.method.getStorageString("userWsFd"),
+                    fd: $A.getStorageString("userWsFd"),
                     token: this.userToken,
                 }
             },
@@ -170,14 +181,10 @@
                     newValue = "";
                 }
                 if (!this.isTyping) {
-                    if (this.getEditor() !== null) {
-                        this.getEditor().setContent(newValue);
-                    } else{
-                        this.content = newValue;
-                    }
+                    this.setContent(newValue);
                 }
             },
-            readonly(value) {
+            readOnly(value) {
                 if (this.editor !== null) {
                     if (value) {
                         this.editor.setMode('readonly');
@@ -209,14 +216,14 @@
             },
 
             option(isFull) {
-                return {
+                let optionInfo = {
                     inline: isFull ? false : this.inline,
                     selector: (isFull ? '#T_' : '#') + this.id,
                     base_url: $A.originUrl('js/tinymce'),
                     language: "zh_CN",
                     toolbar: this.toolbar,
                     plugins: this.plugin(isFull),
-                    placeholder: this.placeholder,
+                    placeholder: isFull && this.placeholderFull ? this.placeholderFull : this.placeholder,
                     save_onsavecallback: (e) => {
                         this.$emit('editorSave', e);
                     },
@@ -228,7 +235,7 @@
                         },
                         insert: {
                             title: "Insert",
-                            items: "image link media addcomment pageembed template codesample inserttable | charmap emoticons hr | pagebreak nonbreaking anchor toc | insertdatetime | uploadImages browseImages | uploadFiles"
+                            items: "image link media addcomment pageembed template codesample inserttable | charmap emoticons hr | pagebreak nonbreaking anchor toc | insertdatetime | uploadImages | uploadFiles"
                         }
                     },
                     codesample_languages: [
@@ -247,7 +254,7 @@
                     resize: !isFull,
                     convert_urls:false,
                     toolbar_mode: 'sliding',
-                    toolbar_drawer: 'floating',
+                    content_css: this.themeIsDark ? 'dark' : 'default',
                     setup: (editor) => {
                         editor.ui.registry.addMenuButton('uploadImages', {
                             text: this.$L('图片'),
@@ -255,13 +262,13 @@
                             fetch: (callback) => {
                                 let items = [{
                                     type: 'menuitem',
-                                    text: this.$L('上传图片'),
+                                    text: this.$L('上传本地图片'),
                                     onAction: () => {
                                         this.$refs.myUpload.handleClick();
                                     }
                                 }, {
                                     type: 'menuitem',
-                                    text: this.$L('浏览图片'),
+                                    text: this.$L('浏览已上传图片'),
                                     onAction: () => {
                                         this.$refs.myUpload.browsePicture();
                                     }
@@ -269,16 +276,35 @@
                                 callback(items);
                             }
                         });
-                        editor.ui.registry.addMenuItem('uploadImages', {
+                        editor.ui.registry.addNestedMenuItem('uploadImages', {
+                            icon: 'image',
                             text: this.$L('上传图片'),
-                            onAction: () => {
-                                this.$refs.myUpload.handleClick();
+                            getSubmenuItems: () => {
+                                return [{
+                                    type: 'menuitem',
+                                    text: this.$L('上传本地图片'),
+                                    onAction: () => {
+                                        this.$refs.myUpload.handleClick();
+                                    }
+                                }, {
+                                    type: 'menuitem',
+                                    text: this.$L('浏览已上传图片'),
+                                    onAction: () => {
+                                        this.$refs.myUpload.browsePicture();
+                                    }
+                                }];
                             }
                         });
-                        editor.ui.registry.addMenuItem('browseImages', {
-                            text: this.$L('浏览图片'),
+                        editor.ui.registry.addMenuItem('imagePreview', {
+                            text: this.$L('预览图片'),
                             onAction: () => {
-                                this.$refs.myUpload.browsePicture();
+                                const array = this.getValueImages();
+                                if (array.length === 0) {
+                                    $A.messageWarning("没有可预览的图片")
+                                    return;
+                                }
+                                this.$store.state.previewImageIndex = 0;
+                                this.$store.state.previewImageList = array;
                             }
                         });
                         editor.ui.registry.addButton('uploadFiles', {
@@ -315,7 +341,7 @@
                             editor.on('Init', (e) => {
                                 this.editorT = editor;
                                 this.editorT.setContent(this.content);
-                                if (this.readonly) {
+                                if (this.readOnly) {
                                     this.editorT.setMode('readonly');
                                 } else {
                                     this.editorT.setMode('design');
@@ -343,15 +369,10 @@
                                 this.spinShow = false;
                                 this.editor = editor;
                                 this.editor.setContent(this.content);
-                                if (this.readonly) {
+                                if (this.readOnly) {
                                     this.editor.setMode('readonly');
                                 } else {
                                     this.editor.setMode('design');
-                                }
-                                if (this.inline) {
-                                    this.$nextTick(() => {
-                                        this.$refs.input.focus();
-                                    });
                                 }
                                 this.$emit('editorInit', this.editor);
                             });
@@ -377,6 +398,13 @@
                         }
                     },
                 };
+                if (this.autoSize) {
+                    optionInfo.plugins.push('autoresize')
+                }
+                if (this.minHeight > 0) {
+                    optionInfo.min_height = this.minHeight
+                }
+                return optionInfo;
             },
 
             closeFull() {
@@ -446,6 +474,21 @@
                 return this.getEditor().getContent();
             },
 
+            setContent(content) {
+                if (this.getEditor() === null) {
+                    this.content = content;
+                } else if (content != this.getEditor().getContent()){
+                    this.getEditor().setContent(content);
+                }
+            },
+
+            focus() {
+                if (this.getEditor() === null) {
+                    return "";
+                }
+                return this.getEditor().focus();
+            },
+
             insertImage(src) {
                 this.insertContent('<img src="' + src + '">');
             },
@@ -459,11 +502,30 @@
                 }
             },
 
+            getValueImages() {
+                let imgs = [];
+                let imgReg = /<img.*?(?:>|\/>)/gi;
+                let srcReg = /src=['"]?([^'"]*)['"]?/i;
+                let array = (this.getContent() + "").match(imgReg);
+                if (array) {
+                    for (let i = 0; i < array.length; i++) {
+                        let src = array[i].match(srcReg);
+                        if(src[1]){
+                            imgs.push(src[1]);
+                        }
+                    }
+                }
+                return imgs;
+            },
+
             /********************文件上传部分************************/
 
-            handleProgress() {
+            handleProgress(event, file) {
                 //开始上传
-                this.uploadIng++;
+                if (file._uploadIng === undefined) {
+                    file._uploadIng = true;
+                    this.uploadIng++;
+                }
             },
 
             handleSuccess(res, file) {

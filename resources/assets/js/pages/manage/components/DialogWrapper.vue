@@ -6,25 +6,41 @@
         @dragover.prevent="chatDragOver(true, $event)"
         @dragleave.prevent="chatDragOver(false, $event)">
         <slot name="head">
-            <div class="dialog-title">
-                <div class="main-title">
-                    <h2>{{dialogData.name}}</h2>
-                    <em v-if="peopleNum > 0">({{peopleNum}})</em>
+            <div class="dialog-nav" :class="{completed:$A.dialogCompleted(dialogData)}">
+                <div class="dialog-avatar">
+                    <template v-if="dialogData.type=='group'">
+                        <i v-if="dialogData.group_type=='project'" class="taskfont icon-avatar project">&#xe6f9;</i>
+                        <i v-else-if="dialogData.group_type=='task'" class="taskfont icon-avatar task">&#xe6f4;</i>
+                        <Icon v-else class="icon-avatar" type="ios-people" />
+                    </template>
+                    <div v-else-if="dialogData.dialog_user" class="user-avatar"><UserAvatar :userid="dialogData.dialog_user.userid" :size="42"/></div>
+                    <Icon v-else class="icon-avatar" type="md-person" />
                 </div>
-                <template v-if="dialogData.type === 'group'">
-                    <div v-if="dialogData.group_type === 'project'" class="sub-title pointer" @click="openProject">
-                        {{$L('项目聊天室')}} {{$L('打开项目管理')}}
+                <div class="dialog-title">
+                    <div class="main-title">
+                        <template v-for="tag in $A.dialogTags(dialogData)" v-if="tag.color != 'success'">
+                            <Tag :color="tag.color" :fade="false">{{$L(tag.text)}}</Tag>
+                        </template>
+                        <h2>{{dialogData.name}}</h2>
+                        <em v-if="peopleNum > 0">({{peopleNum}})</em>
+                        <label v-if="dialogData.top_at" class="top-text">{{$L('置顶')}}</label>
                     </div>
-                    <div v-else-if="dialogData.group_type === 'task'" class="sub-title pointer" @click="openTask">
-                        {{$L('任务聊天室')}} {{$L('查看任务详情')}}
-                    </div>
-                </template>
+                    <template v-if="dialogData.type === 'group'">
+                        <div v-if="dialogData.group_type === 'project'" class="sub-title pointer" @click="openProject">
+                            {{$L('项目聊天室')}} {{$L('打开项目管理')}}
+                        </div>
+                        <div v-else-if="dialogData.group_type === 'task'" class="sub-title pointer" @click="openTask">
+                            {{$L('任务聊天室')}} {{$L('查看任务详情')}}
+                        </div>
+                    </template>
+                </div>
             </div>
         </slot>
         <ScrollerY
             ref="scroller"
             class="dialog-scroller overlay-y"
-            :auto-bottom="autoBottom && !inputFocus"
+            :style="{opacity: visible ? 1 : 0}"
+            :auto-bottom="isAutoBottom"
             @on-scroll="chatScroll"
             static>
             <div ref="manageList" class="dialog-list">
@@ -39,7 +55,7 @@
                         :class="{self:item.userid == userId, 'history-tip': topId == item.id}">
                         <em v-if="topId == item.id" class="history-text">{{$L('历史消息')}}</em>
                         <div class="dialog-avatar">
-                            <UserAvatar :userid="item.userid" :tooltip-disabled="item.userid == userId" :size="30"/>
+                            <UserAvatar :userid="item.userid" :tooltipDisabled="item.userid == userId" :size="30"/>
                         </div>
                         <DialogView :msg-data="item" :dialog-type="dialogData.type"/>
                     </li>
@@ -49,7 +65,7 @@
                         :key="'tmp_' + item.id"
                         :class="{self:item.userid == userId}">
                         <div class="dialog-avatar">
-                            <UserAvatar :userid="item.userid" :tooltip-disabled="item.userid == userId" :size="30"/>
+                            <UserAvatar :userid="item.userid" :tooltipDisabled="item.userid == userId" :size="30"/>
                         </div>
                         <DialogView :msg-data="item" :dialog-type="dialogData.type"/>
                     </li>
@@ -57,7 +73,7 @@
             </div>
         </ScrollerY>
         <div :class="['dialog-footer', msgNew > 0 && dialogMsgList.length > 0 ? 'newmsg' : '']" @click="onActive">
-            <div class="dialog-newmsg" @click="goNewBottom">{{$L('有' + msgNew + '条新消息')}}</div>
+            <div class="dialog-newmsg" @click="onToBottom">{{$L('有' + msgNew + '条新消息')}}</div>
             <slot name="inputBefore"/>
             <DragInput
                 ref="input"
@@ -66,7 +82,7 @@
                 type="textarea"
                 :rows="1"
                 :autosize="{ minRows: 1, maxRows: 3 }"
-                :maxlength="255"
+                :maxlength="20000"
                 @on-focus="onEventFocus"
                 @on-blur="onEventblur"
                 @on-keydown="chatKeydown"
@@ -86,6 +102,22 @@
         <div v-if="dialogDrag" class="drag-over" @click="dialogDrag=false">
             <div class="drag-text">{{$L('拖动到这里发送')}}</div>
         </div>
+
+        <!--拖动发送提示-->
+        <Modal
+            v-model="pasteShow"
+            :title="$L(pasteTitle)"
+            :cancel-text="$L('取消')"
+            :ok-text="$L('发送')"
+            :enter-ok="true"
+            @on-ok="pasteSend">
+            <div class="dialog-wrapper-paste">
+                <template v-for="item in pasteItem">
+                    <img v-if="item.type == 'image'" :src="item.result"/>
+                    <div v-else>{{$L('文件')}}: {{item.name}} ({{$A.bytesToSize(item.size)}})</div>
+                </template>
+            </div>
+        </Modal>
     </div>
 </template>
 
@@ -95,6 +127,7 @@ import ScrollerY from "../../../components/ScrollerY";
 import {mapState} from "vuex";
 import DialogView from "./DialogView";
 import DialogUpload from "./DialogUpload";
+import {Store} from "le5le-store";
 
 export default {
     name: "DialogWrapper",
@@ -108,6 +141,7 @@ export default {
 
     data() {
         return {
+            visible: true,
             autoBottom: true,
             autoInterval: null,
 
@@ -118,20 +152,38 @@ export default {
             msgNew: 0,
             topId: 0,
 
-            tempMsgs: []
+            tempMsgs: [],
+
+            dialogMsgSubscribe: null,
+
+            pasteShow: false,
+            pasteFile: [],
+            pasteItem: [],
+        }
+    },
+
+    mounted() {
+        this.dialogMsgSubscribe = Store.subscribe('dialogMsgPush', this.addDialogMsg);
+    },
+
+    beforeDestroy() {
+        if (this.dialogMsgSubscribe) {
+            this.dialogMsgSubscribe.unsubscribe();
+            this.dialogMsgSubscribe = null;
         }
     },
 
     computed: {
         ...mapState([
+            'isDesktop',
             'userId',
-            'dialogs',
+            'cacheDialogs',
             'dialogMsgs',
-            'dialogMsgPush',
+            'wsOpenNum',
         ]),
 
         dialogData() {
-            return this.dialogs.find(({id}) => id == this.dialogId) || {};
+            return this.cacheDialogs.find(({id}) => id == this.dialogId) || {};
         },
 
         dialogMsgList() {
@@ -145,6 +197,13 @@ export default {
             });
         },
 
+        isAutoBottom() {
+            if (this.inputFocus && !this.isDesktop) {
+                return false;
+            }
+            return this.autoBottom
+        },
+
         tempMsgList() {
             if (!this.dialogId) {
                 return [];
@@ -156,41 +215,62 @@ export default {
 
         peopleNum() {
             return this.dialogData.type === 'group' ? $A.runNum(this.dialogData.people) : 0;
+        },
+
+        pasteTitle() {
+            const {pasteItem} = this;
+            let hasImage = pasteItem.find(({type}) => type == 'image')
+            let hasFile = pasteItem.find(({type}) => type != 'image')
+            if (hasImage && hasFile) {
+                return '发送文件/图片'
+            } else if (hasImage) {
+                return '发送图片'
+            }
+            return '发送文件'
         }
     },
 
     watch: {
         '$route': {
             handler (route) {
-                if (route.query && route.query.sendmsg && this.msgText == '') {
+                if ($A.isJson(window.__sendDialogMsg) && window.__sendDialogMsg.time > $A.Time()) {
+                    const {msgFile, msgText} = window.__sendDialogMsg;
+                    window.__sendDialogMsg = null;
+                    this.$nextTick(() => {
+                        if ($A.isArray(msgFile) && msgFile.length > 0) {
+                            this.sendFileMsg(msgFile);
+                        } else if (msgText) {
+                            this.sendMsg(msgText);
+                        }
+                    });
+                }
+                if (route.query && route.query._) {
                     let query = $A.cloneJSON(route.query);
-                    delete query.sendmsg;
+                    delete query._;
                     this.goForward({query}, true);
-                    this.msgText = route.query.sendmsg;
-                    this.$nextTick(this.sendMsg);
                 }
             },
             immediate: true
-        },
-
-        dialogMsgPush() {
-            if (this.autoBottom) {
-                this.$nextTick(this.goBottom);
-            } else {
-                this.msgNew++;
-            }
         },
 
         dialogId: {
             handler(id) {
                 if (id) {
-                    this.autoBottom = true;
                     this.msgNew = 0;
                     this.topId = -1;
-                    this.$store.dispatch("getDialogMsgs", id);
+                    this.visible = false;
+                    this.$store.dispatch("getDialogMsgs", id).then(_ => {
+                        this.onToBottom();
+                        this.visible = true;
+                    });
                 }
             },
             immediate: true
+        },
+
+        wsOpenNum(num) {
+            if (num <= 1) return
+            this.$store.dispatch("getDialogMsgs", this.dialogId);
         }
     },
 
@@ -213,10 +293,10 @@ export default {
                     text: this.msgText,
                 },
             });
-            if (this.$store.state.windowMax768) {
+            if (!this.isDesktop) {
                 this.$refs.input.blur();
             }
-            this.autoBottom = true;
+            this.onToBottom();
             this.onActive();
             //
             this.$store.dispatch("call", {
@@ -225,6 +305,7 @@ export default {
                     dialog_id: this.dialogId,
                     text: this.msgText,
                 },
+                method: 'post'
             }).then(({data}) => {
                 this.tempMsgs = this.tempMsgs.filter(({id}) => id != tempId)
                 this.sendSuccess(data);
@@ -234,6 +315,27 @@ export default {
             });
             //
             this.msgText = '';
+        },
+
+        sendFileMsg(files) {
+            if (files.length > 0) {
+                this.pasteFile = [];
+                this.pasteItem = [];
+                files.some(file => {
+                    let reader = new FileReader();
+                    reader.readAsDataURL(file);
+                    reader.onload = ({target}) => {
+                        this.pasteFile.push(file)
+                        this.pasteItem.push({
+                            type: $A.getMiddle(file.type, null, '/'),
+                            name: file.name,
+                            size: file.size,
+                            result: target.result
+                        })
+                        this.pasteShow = true
+                    }
+                });
+            }
         },
 
         chatKeydown(e) {
@@ -251,10 +353,13 @@ export default {
             const postFiles = Array.prototype.slice.call(files);
             if (postFiles.length > 0) {
                 e.preventDefault();
-                postFiles.forEach((file) => {
-                    this.$refs.chatUpload.upload(file);
-                });
+                this.sendFileMsg(postFiles);
             }
+        },
+
+        chatPasteDrag(e, type) {
+            this.dialogDrag = false;
+            this.pasteDrag(e, type);
         },
 
         chatDragOver(show, e) {
@@ -273,16 +378,10 @@ export default {
             }
         },
 
-        chatPasteDrag(e, type) {
-            this.dialogDrag = false;
-            const files = type === 'drag' ? e.dataTransfer.files : e.clipboardData.files;
-            const postFiles = Array.prototype.slice.call(files);
-            if (postFiles.length > 0) {
-                e.preventDefault();
-                postFiles.forEach((file) => {
-                    this.$refs.chatUpload.upload(file);
-                });
-            }
+        pasteSend() {
+            this.pasteFile.some(file => {
+                this.$refs.chatUpload.upload(file)
+            });
         },
 
         chatFile(type, file) {
@@ -295,7 +394,10 @@ export default {
                         userid: this.userId,
                         msg: { },
                     });
-                    this.autoBottom = true;
+                    if (!this.isDesktop) {
+                        this.$refs.input.blur();
+                    }
+                    this.onToBottom();
                     this.onActive();
                     break;
 
@@ -311,9 +413,14 @@ export default {
         },
 
         sendSuccess(data) {
+            if ($A.isArray(data)) {
+                data.some(item => {
+                    this.sendSuccess(item)
+                })
+                return;
+            }
             this.$store.dispatch("saveDialogMsg", data);
             this.$store.dispatch("increaseTaskMsgNum", this.dialogId);
-            this.$store.dispatch("moveDialogTop", this.dialogId);
             this.$store.dispatch("updateDialogLastMsg", data);
             this.onActive();
         },
@@ -322,6 +429,7 @@ export default {
             switch (res.directionreal) {
                 case 'up':
                     if (res.scrollE < 10) {
+                        this.msgNew = 0;
                         this.autoBottom = true;
                     }
                     break;
@@ -329,21 +437,10 @@ export default {
                     this.autoBottom = false;
                     break;
             }
-            if (res.scale === 1) {
+            if (res.scale >= 1) {
+                this.msgNew = 0;
                 this.autoBottom = true;
             }
-        },
-
-        goBottom() {
-            if (this.autoBottom) {
-                this.msgNew = 0;
-                this.$refs.scroller.autoToBottom();
-            }
-        },
-
-        goNewBottom() {
-            this.autoBottom = true;
-            this.goBottom();
         },
 
         onEventFocus(e) {
@@ -360,17 +457,9 @@ export default {
             this.$emit("on-active");
         },
 
-        formatTime(date) {
-            let time = Math.round($A.Date(date).getTime() / 1000),
-                string = '';
-            if ($A.formatDate('Ymd') === $A.formatDate('Ymd', time)) {
-                string = $A.formatDate('H:i', time)
-            } else if ($A.formatDate('Y') === $A.formatDate('Y', time)) {
-                string = $A.formatDate('m-d', time)
-            } else {
-                string = $A.formatDate('Y-m-d', time)
-            }
-            return string || '';
+        onToBottom() {
+            this.autoBottom = true;
+            this.$refs.scroller && this.$refs.scroller.autoToBottom();
         },
 
         openProject() {
@@ -389,23 +478,28 @@ export default {
 
         loadNextPage() {
             let topId = this.dialogMsgList[0].id;
-            this.$store.dispatch('getDialogMsgNextPage', this.dialogId).then(() => {
+            this.$store.dispatch('getDialogMoreMsgs', this.dialogId).then(() => {
                 this.$nextTick(() => {
                     this.topId = topId;
-                    let dom = document.getElementById("view_" + topId);
-                    if (dom) {
-                        try {
-                            dom.scrollIntoView(true);
-                        } catch (e) {
-                            scrollIntoView(dom, {
-                                behavior: 'instant',
-                                inline: 'start',
-                            })
-                        }
-                    }
+                    $A.scrollToView(document.getElementById("view_" + topId), {
+                        behavior: 'instant',
+                        inline: 'start',
+                    })
                 });
-            });
-        }
+            }).catch(() => {})
+        },
+
+        addDialogMsg() {
+            if (this.isAutoBottom) {
+                this.$nextTick(this.onToBottom);
+            } else {
+                this.$nextTick(() => {
+                    if (this.$refs.scroller && this.$refs.scroller.scrollInfo().scrollE > 10) {
+                        this.msgNew++;
+                    }
+                })
+            }
+        },
     }
 }
 </script>
